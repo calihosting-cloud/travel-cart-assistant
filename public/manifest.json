@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Travel Cart Assistant",
+  "version": "1.0.0",
+  "description": "Asistente de captura de productos turísticos para agencias de viajes (Travel Capture Engine)",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://reservas.grupostravel.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "file://*/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["bridge.js"],
+      "matches": [
+        "https://reservas.grupostravel.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "file://*/*"
+      ]
+    }
+  ]
+}

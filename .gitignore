@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output (regenerate with npm run build)
+dist/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.crx
+extension.zip
+dist.crx
+
+# OS & editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Saved page assets (large; keep only the .html fixtures in repo)
+ejemplobusqueda_files/
+traslados_files/
