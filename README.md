@@ -90,6 +90,8 @@ Flujo:
 
 Documentación detallada para agentes y desarrolladores: [`docs/CONTEXT.md`](docs/CONTEXT.md).
 
+Guía para publicar en GitHub: [`docs/GITHUB_SETUP.md`](docs/GITHUB_SETUP.md).
+
 ## Scripts
 
 | Comando | Descripción |
