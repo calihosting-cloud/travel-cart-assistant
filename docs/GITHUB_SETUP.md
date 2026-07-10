@@ -24,8 +24,10 @@ git add .
 git status
 git commit -m "Initial commit: Travel Capture Engine with hotels and transfers"
 
-# Reemplaza TU_USUARIO por tu usuario de GitHub (ej. calihosting)
-git remote add origin https://github.com/TU_USUARIO/travel-cart-assistant.git
+# Reemplaza con el remoto real del proyecto:
+git remote add origin https://github.com/calihosting-cloud/travel-cart-assistant.git
+# Si ya existe origin con otra URL:
+# git remote set-url origin https://github.com/calihosting-cloud/travel-cart-assistant.git
 git branch -M main
 git push -u origin main
 ```
