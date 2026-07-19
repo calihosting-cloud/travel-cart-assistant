@@ -3,8 +3,14 @@ import { BookingMotorTransferExtractor } from '../engine/providers/bookingmotor/
 import { BookingMotorUIInjector } from '../engine/providers/bookingmotor/BookingMotorUIInjector';
 import { BookingMotorTransferUIInjector } from '../engine/providers/bookingmotor/BookingMotorTransferUIInjector';
 import { PageObserver } from '../engine/observer/PageObserver';
-import { HotelCartItem, TransferCartItem } from '../engine/core/types';
+import { FlightCartItem, FlightProduct, HotelCartItem, Occupancy, SearchContext, TransferCartItem } from '../engine/core/types';
 import { CartSidebar } from '../ui/CartSidebar';
+import { SearchSyncController } from './searchSync';
+import { BookingMotorSearchFormSync } from '../engine/providers/bookingmotor/BookingMotorSearchFormSync';
+import { DespegarFlightReader } from '../engine/providers/despegar/DespegarFlightReader';
+import { DespegarFlightUIInjector } from '../engine/providers/despegar/DespegarFlightUIInjector';
+import { XNetFlightReader } from '../engine/providers/xnet/XNetFlightReader';
+import { XNetFlightUIInjector } from '../engine/providers/xnet/XNetFlightUIInjector';
 
 console.log('[TCE] Travel Capture Engine Content Script Loaded.');
 
@@ -15,7 +21,98 @@ const hotelExtractor = new BookingMotorExtractor();
 const transferExtractor = new BookingMotorTransferExtractor();
 const hotelUIInjector = new BookingMotorUIInjector();
 const transferUIInjector = new BookingMotorTransferUIInjector();
-const cartSidebar = new CartSidebar();
+const despegarUIInjector = new DespegarFlightUIInjector();
+const xnetUIInjector = new XNetFlightUIInjector();
+
+let cartSidebar: CartSidebar;
+try {
+  cartSidebar = new CartSidebar();
+} catch (err) {
+  console.error('[TCE] CartSidebar failed to init:', err);
+  throw err;
+}
+const searchFormSync = new BookingMotorSearchFormSync();
+
+function computeNights(checkIn?: string, checkOut?: string): number {
+  if (!checkIn || !checkOut) return 0;
+  const parse = (d: string): number | null => {
+    const m = d.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    return m ? Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
+  };
+  const a = parse(checkIn);
+  const b = parse(checkOut);
+  if (a === null || b === null) return 0;
+  const diff = Math.round((b - a) / 86_400_000);
+  return diff > 0 ? diff : 0;
+}
+
+/**
+ * Dates/nights/occupancy come from window.data. If the bridge didn't deliver it
+ * (0 nights or empty occupancy), fall back to reading the hotel search form from
+ * the DOM, which holds the real values even on results pages.
+ */
+function resolveHotelSearchFields(hotel: {
+  checkIn: string;
+  checkOut: string;
+  nights: number;
+  occupancy: Occupancy[];
+}): { checkIn: string; checkOut: string; nights: number; occupancy: Occupancy[] } {
+  let { checkIn, checkOut, nights, occupancy } = hotel;
+
+  const occEmpty =
+    !occupancy ||
+    occupancy.length === 0 ||
+    occupancy.every((o) => o.adults === 0 && o.children === 0);
+
+  if (!checkIn || !checkOut || !nights || occEmpty) {
+    const form = searchFormSync.getForm(document, 'hotel');
+    if (form) {
+      const ctx = searchFormSync.capture(form, 'hotel');
+      if (!checkIn && ctx.checkIn) checkIn = ctx.checkIn;
+      if (!checkOut && ctx.checkOut) checkOut = ctx.checkOut;
+      if (!nights && ctx.nights) nights = ctx.nights;
+      if (occEmpty && ctx.rooms.length > 0) {
+        occupancy = ctx.rooms.map((r) => ({
+          adults: r.adults,
+          children: r.children,
+          childrenAges: r.childrenAges,
+        }));
+      }
+    }
+  }
+
+  if (!nights) nights = computeNights(checkIn, checkOut);
+
+  return { checkIn, checkOut, nights, occupancy };
+}
+
+/**
+ * Same window.data fallback for transfers: if passengers came out as 0, read
+ * them (and dates) from the transfer search form in the DOM.
+ */
+function resolveTransferSearchFields(transfer: {
+  checkIn: string;
+  adults: number;
+  children: number;
+  childrenAges: number[];
+}): { checkIn: string; adults: number; children: number; childrenAges: number[] } {
+  let { checkIn, adults, children, childrenAges } = transfer;
+
+  if (!checkIn || (adults === 0 && children === 0)) {
+    const form = searchFormSync.getForm(document, 'transfer');
+    if (form) {
+      const ctx = searchFormSync.capture(form, 'transfer');
+      if (!checkIn && ctx.checkIn) checkIn = ctx.checkIn;
+      if (adults === 0 && children === 0) {
+        adults = ctx.totalAdults;
+        children = ctx.totalChildren;
+        childrenAges = ctx.childrenAges;
+      }
+    }
+  }
+
+  return { checkIn, adults, children, childrenAges };
+}
 
 function detectPageType(): PageType | null {
   if (document.querySelector('#list-hotel-items')) return 'hotel';
@@ -64,6 +161,8 @@ function handleAddHotelToCart(hotelId: string, rateIndex?: number) {
       return;
     }
 
+    const resolved = resolveHotelSearchFields(hotel);
+
     const cartItem: HotelCartItem = {
       type: 'hotel',
       id: `cart_item_${hotel.hotelId}_${rateIndex}_${Date.now()}`,
@@ -72,10 +171,10 @@ function handleAddHotelToCart(hotelId: string, rateIndex?: number) {
       stars: hotel.stars,
       address: hotel.address,
       imageUrl: hotel.imageUrl,
-      checkIn: hotel.checkIn,
-      checkOut: hotel.checkOut,
-      nights: hotel.nights,
-      occupancy: hotel.occupancy,
+      checkIn: resolved.checkIn,
+      checkOut: resolved.checkOut,
+      nights: resolved.nights,
+      occupancy: resolved.occupancy,
       selectedRate: rate,
       addedAt: Date.now(),
     };
@@ -98,6 +197,8 @@ function handleAddTransferToCart(transferId: string) {
       return;
     }
 
+    const resolved = resolveTransferSearchFields(transfer);
+
     const cartItem: TransferCartItem = {
       type: 'transfer',
       id: `cart_item_${transfer.transferId}_${Date.now()}`,
@@ -108,12 +209,12 @@ function handleAddTransferToCart(transferId: string) {
       from: transfer.from,
       to: transfer.to,
       tripType: transfer.tripType,
-      checkIn: transfer.checkIn,
+      checkIn: resolved.checkIn,
       checkInTime: transfer.checkInTime,
       checkOut: transfer.checkOut,
       checkOutTime: transfer.checkOutTime,
-      adults: transfer.adults,
-      children: transfer.children,
+      adults: resolved.adults,
+      children: resolved.children,
       legs: transfer.legs,
       price: transfer.price,
       currency: transfer.currency,
@@ -130,7 +231,108 @@ function handleAddTransferToCart(transferId: string) {
   }
 }
 
-function logCartItem(item: HotelCartItem | TransferCartItem) {
+function isoToDdMmYyyy(iso?: string): string | undefined {
+  if (!iso) return undefined;
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
+}
+
+function nightsBetweenIso(checkIn?: string, checkOut?: string): number {
+  if (!checkIn || !checkOut) return 0;
+  const a = Date.parse(checkIn);
+  const b = Date.parse(checkOut);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  const diff = Math.round((b - a) / 86_400_000);
+  return diff > 0 ? diff : 0;
+}
+
+function applyFlightSearchSummary(flight: {
+  title: string;
+  origin: { code: string; name?: string };
+  destination: { code: string; name?: string };
+  departureDate?: string;
+  returnDate?: string;
+  adults: number;
+  children: number;
+}): void {
+  const destinationText =
+    flight.title ||
+    [flight.origin.name || flight.origin.code, flight.destination.name || flight.destination.code]
+      .filter(Boolean)
+      .join(' → ');
+
+  // In-memory only: writing `tce_last_search` here used to wipe the hotel→transfer
+  // sync context that BookingMotor relies on.
+  const ctx: SearchContext = {
+    sourceType: 'flight',
+    checkIn: isoToDdMmYyyy(flight.departureDate),
+    checkOut: isoToDdMmYyyy(flight.returnDate),
+    nights: nightsBetweenIso(flight.departureDate, flight.returnDate),
+    rooms: [],
+    totalAdults: flight.adults,
+    totalChildren: flight.children,
+    childrenAges: [],
+    destinationText,
+    savedAt: Date.now(),
+  };
+  cartSidebar.setSearchContext(ctx);
+}
+
+function pushFlightToCart(flight: FlightProduct, sourceLabel: string): void {
+  console.log(`[TCE] Add-to-cart clicked for ${sourceLabel} flight.`);
+
+  if (cartSidebar.hasFlightTrip(flight.tripId)) {
+    console.log('[TCE] Flight already in cart (same tripId). Skipping duplicate.');
+    throw new Error('ALREADY_IN_CART');
+  }
+
+  const cartItem: FlightCartItem = {
+    type: 'flight',
+    id: `cart_item_${flight.tripId || flight.id}_${Date.now()}`,
+    provider: flight.provider,
+    tripId: flight.tripId,
+    title: flight.title,
+    routeType: flight.routeType,
+    origin: flight.origin,
+    destination: flight.destination,
+    departureDate: flight.departureDate,
+    returnDate: flight.returnDate,
+    adults: flight.adults,
+    children: flight.children,
+    infants: flight.infants,
+    paxSummary: flight.paxSummary,
+    legs: flight.legs,
+    price: flight.price,
+    currency: flight.currency,
+    priceBreakdown: flight.priceBreakdown,
+    bookingUrl: flight.bookingUrl,
+    addedAt: Date.now(),
+  };
+
+  logCartItem(cartItem);
+  void cartSidebar.addItem(cartItem);
+  applyFlightSearchSummary(flight);
+}
+
+function handleAddFlightToCart(): void {
+  const flight = DespegarFlightReader.extract(document);
+  if (!flight) {
+    console.warn('[TCE] Could not read Despegar flight checkout data.');
+    throw new Error('No flight checkout data found');
+  }
+  pushFlightToCart(flight, 'Despegar');
+}
+
+function handleAddXNetFlightToCart(): void {
+  const flight = XNetFlightReader.extract(document);
+  if (!flight) {
+    console.warn('[TCE] Could not read XNet selected fare.');
+    throw new Error('No XNet selected fare found');
+  }
+  pushFlightToCart(flight, 'XNet');
+}
+
+function logCartItem(item: HotelCartItem | TransferCartItem | FlightCartItem) {
   console.log('==================================================');
   console.log('         [TCE] PRODUCT ADDED TO CART              ');
   console.log('==================================================');
@@ -177,14 +379,87 @@ function runExtractionAndInjection() {
   }
 }
 
-const observer = new PageObserver('#content', () => {
-  const pageType = detectPageType();
-  if (!pageType) return;
+function isDespegarHost(): boolean {
+  return /(^|\.)despegar\./i.test(location.hostname);
+}
 
-  console.log(`[TCE] Mutation observed (${pageType}). Re-injecting & re-extracting...`);
-  window.postMessage({ type: 'TCE_REQUEST_DATA' }, '*');
-  runExtractionAndInjection();
-});
+function isXNetHost(): boolean {
+  if (/(^|\.)xnet\.travel$/i.test(location.hostname)) return true;
+  // Offline fixtures (file://) and mirrors that keep the same DOM.
+  return !!document.querySelector('#divRatesReserve table.selectedFlight, #divRatesReserve #tabs-tarif');
+}
 
-injectBridge();
-observer.start();
+function initDespegar(): void {
+  console.log('[TCE] Despegar host detected. Watching for flight checkout...');
+
+  const tryInject = () => {
+    if (!DespegarFlightReader.hasFlightCheckout(document)) return;
+    try {
+      despegarUIInjector.injectButton(document, handleAddFlightToCart);
+    } catch (err) {
+      console.error('[TCE] Despegar button injection error:', err);
+    }
+  };
+
+  tryInject();
+
+  // Despegar is an SPA: the checkout renders/updates after load, so keep
+  // watching the body until the CheckoutModel script is present.
+  const obs = new MutationObserver(() => tryInject());
+  if (document.body) {
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
+function initXNet(): void {
+  console.log('[TCE] XNet/Scape host detected. Watching for selected fare...');
+
+  let debounceTimer: number | undefined;
+  const tryInject = () => {
+    if (!XNetFlightReader.hasSelectedFare(document)) return;
+    try {
+      xnetUIInjector.injectButton(document, handleAddXNetFlightToCart);
+    } catch (err) {
+      console.error('[TCE] XNet button injection error:', err);
+    }
+  };
+
+  const scheduleInject = () => {
+    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(tryInject, 200);
+  };
+
+  tryInject();
+
+  // Observe body: #divRatesReserve is often replaced when picking ida/vuelta,
+  // which would detach an observer bound only to that node.
+  const obs = new MutationObserver(scheduleInject);
+  if (document.body) {
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'aria-hidden', 'class'] });
+  }
+}
+
+function initBookingMotor(): void {
+  const observer = new PageObserver('#content', () => {
+    const pageType = detectPageType();
+    if (!pageType) return;
+
+    console.log(`[TCE] Mutation observed (${pageType}). Re-injecting & re-extracting...`);
+    window.postMessage({ type: 'TCE_REQUEST_DATA' }, '*');
+    runExtractionAndInjection();
+  });
+
+  injectBridge();
+  observer.start();
+
+  const searchSync = new SearchSyncController();
+  void searchSync.init();
+}
+
+if (isDespegarHost()) {
+  initDespegar();
+} else if (isXNetHost()) {
+  initXNet();
+} else {
+  initBookingMotor();
+}

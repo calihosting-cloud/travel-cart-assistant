@@ -1,0 +1,239 @@
+:root {
+  --blue: #1e40af;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --ok: #16a34a;
+  --danger: #dc2626;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  width: 380px;
+  max-height: 560px;
+  overflow-y: auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: #f8fafc;
+}
+
+header {
+  background: var(--blue);
+  color: #fff;
+  padding: 14px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+header p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  opacity: 0.85;
+  line-height: 1.35;
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+  position: sticky;
+  top: 58px;
+  z-index: 2;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 6px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+}
+
+.tab.active {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+}
+
+.panel { display: none; padding: 12px 14px 16px; }
+.panel.active { display: block; }
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+
+.domain {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.domain-name {
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+
+.domain-host {
+  font-size: 11px;
+  color: var(--blue);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+  margin: 0;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--ok);
+  background: #dcfce7;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-bottom: 4px;
+}
+
+.badge--dev {
+  color: #a16207;
+  background: #fef9c3;
+}
+
+.config-block {
+  margin-bottom: 14px;
+}
+
+.config-block h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.line-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.line-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 28px;
+  gap: 6px;
+  align-items: start;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.line-row input[type="text"] {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text);
+}
+
+.line-row .emoji-input {
+  text-align: center;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.line-row .btn-del {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.line-row .btn-del:hover {
+  color: var(--danger);
+  background: #fef2f2;
+}
+
+.add-form {
+  display: grid;
+  grid-template-columns: 36px 1fr 32px;
+  gap: 6px;
+}
+
+.add-form input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.add-form button {
+  border: none;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.add-form button:hover { background: #1d4ed8; }
+
+.btn-secondary {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-secondary:hover {
+  background: #f1f5f9;
+  color: var(--text);
+}
+
+.changelog {
+  margin: 0;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow-y: auto;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

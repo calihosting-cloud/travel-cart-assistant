@@ -2,6 +2,8 @@
 
 Este documento resume el estado del proyecto para que agentes de IA o desarrolladores puedan retomar el trabajo sin releer todo el código.
 
+**Historial de cambios:** [CHANGELOG.md](./CHANGELOG.md) (añadir entrada en cada cambio relevante).
+
 ## Objetivo
 
 Extensión Chrome MV3 que inyecta botones **+ 🛒** en páginas de resultados de BookingMotor, extrae datos estructurados de cada producto/tarifa, y los acumula en un carrito lateral persistente.
@@ -58,8 +60,10 @@ Travel Cart Assistant/
 BookingMotor expone `let data = JSON.parse('...')` en el main world. El content script no puede leerlo directamente (isolated world).
 
 - `bridge.js` se inyecta como script en la página.
-- Envía `postMessage` con `{ source: 'tce-bridge', type: 'TCE_BRIDGE_DATA', payload: window.data }`.
+- Envía `postMessage` con `{ source: 'tce-bridge', type: 'TCE_BRIDGE_DATA', payload: <data> }`.
 - El content script cachea el payload y re-solicita con `TCE_REQUEST_DATA` en mutaciones del DOM.
+
+> ⚠️ **Importante (`let data` ≠ `window.data`):** `let`/`const` a nivel global crean un *binding léxico* que NO se expone como `window.data`. Por eso el bridge lee el identificador **`data` a secas** (accesible entre scripts clásicos del mismo realm), con `window.data` solo como fallback para páginas antiguas con `var data`. Confirmado en vivo: `typeof window.data === 'undefined'` pero `typeof data === 'object'` con `data.searchhotel` presente. Diagnóstico reproducible: `tsx scraper/diag.ts <url>`.
 
 ### Claves JS por producto
 
@@ -99,6 +103,18 @@ BookingMotor expone `let data = JSON.parse('...')` en el main world. El content 
 
 **Granularidad:** un traslado = una tarjeta. Un solo botón por bloque.
 
+## Sincronización de búsqueda entre pestañas (`SearchSyncController`)
+
+Página `/es/backoffice/book/new` ("Nueva Reserva"): al cambiar de pestaña (Hoteles → Traslados) los formularios están vacíos. `SearchSyncController` (`src/content/searchSync.ts`) resuelve esto:
+
+- **Captura**: escucha `change`/`input` en campos `searchhotel[...]`/`searchtransfer[...]` del formulario visible (debounce 500ms) y guarda un `SearchContext` en `chrome.storage.local` key `tce_last_search` (TTL 12h).
+- **Restaura**: al hacerse visible un formulario de otro tipo, vacío y sin `data-tce-prefilled`, precarga fechas, pasajeros, edades de niños y nacionalidad, y muestra un banner `.tce-prefill-note`.
+- **Lectura/escritura DOM**: `BookingMotorSearchFormSync` (`providers/bookingmotor/`). Detecta el formulario visible con `offsetParent`; los `<select>` numéricos (adultos/niños/habitaciones/noches) se ajustan (clamp) al máximo que ofrece la página; disparar `change` deja que el JS del sitio genere los sub-campos dinámicos (edades, habitaciones).
+
+**Limitación de diseño:** el destino (hotel/ciudad) NO se auto-escribe. Los traslados requieren IDs de `pickup`/`dropoff` que vienen del autocompletado del backend y no se pueden derivar del nombre del hotel. Se guarda solo como `destinationText` y se muestra como pista en el banner.
+
+Campos comunes mapeados: `checkin`/`checkout`, adultos (suma de habitaciones en hotel → `adults` en traslado), niños + edades (concatenadas), `nights`, `nationality`.
+
 ## Modelos de dominio (`types.ts`)
 
 ### `HotelProduct`
@@ -131,12 +147,51 @@ Botón: `btn btn-xs btn-info btn-tce-add-cart`, HTML `+ 🛒`, estilos inline co
 ## Carrito lateral (`CartSidebar`)
 
 - Shadow DOM cerrado, z-index alto, panel fijo 340px derecha.
-- Persistencia: `chrome.storage.local` key `tce_cart_items`.
+- Persistencia: `chrome.storage.local`:
+  - `tce_cart_items` → productos del carrito.
+  - `tce_last_search` → `SearchContext` (compartido con `SearchSyncController`).
+  - `tce_fees` → valores de los fees (`Record<feeId, number>`).
+- **Resumen de búsqueda en el encabezado:** franja azul bajo "Mi Carrito" con destino + fechas + adultos/niños. Se alimenta de `tce_last_search` y se refresca en vivo vía `chrome.storage.onChanged`.
 - **Pendiente:** cambiar de overlay a layout push (margin-right en body).
+
+### Fees (cargos adicionales)
+
+Bloque de cargos editables en el footer.
+
+- Definición en `CartSidebar.ts`:
+  ```ts
+  const FEE_DEFINITIONS: FeeDefinition[] = [
+    { id: 'mayor_valor_cobrado', label: 'Mayor valor cobrado', defaultValue: 0 },
+  ];
+  ```
+- **Redondear:** calcula el excedente de `(subtotal items + mayor valor cobrado)` hasta la siguiente decena de mil y lo guarda en el campo **Redondeo** (no modifica Mayor valor cobrado). Ej.: items `1.950.000` + mayor `36.700` = `1.986.700` → redondeo `3.300` → total `1.990.000`.
+- **Mayor valor cobrado:** ajuste manual del asesor (ítems faltantes / extras).
+- **Redondeo:** solo el excedente del botón Redondear (editable también a mano).
+- Cada fee es un `<input type="number">` (mín. 0). Al editar, se guarda en `tce_fees` y se actualiza **solo** `.tce-totals` (para no perder el foco del input).
+- **Totales:** subtotal + mayor valor (si > 0) + redondeo (si > 0) → Total en moneda primaria.
+
+### Popup de la extensión
+
+`public/popup.html` + `src/popup/popup.ts`:
+
+| Pestaña | Contenido |
+|---------|-----------|
+| **Config** | CRUD de líneas *incluye / no incluye / políticas* (`tce_quote_lines`). Defaults GT; se pueden restaurar. |
+| **Dominios** | Hosts donde corre el carrito GT. |
+| **Cambios** | Contenido de `CHANGELOG.md` (copia en `public/` para el popup). |
+
+### Cotización WhatsApp
+
+En el footer del carrito → **Cotización WhatsApp**:
+
+- Checkboxes de las líneas habilitadas (sincronizadas con Config).
+- **Copiar WhatsApp** / **Vista previa**: genera texto estilo agencia (destino, fechas, itinerario aéreo, hotel como OPCIÓN, tarifa por persona desde el **gran total**, depósito, incluye/no incluye, políticas).
+- Motor: `src/ui/QuoteBuilder.ts` + defaults en `src/shared/quoteConfig.ts`.
+- **Pendiente:** export PDF; persistencia PostgreSQL del listado incluye/no incluye y de cotizaciones guardadas.
 
 ## Build
 
-- Vite multi-entry: `background.js`, `content.js`, `bridge.js` → `dist/`
+- Vite multi-entry: `background.js`, `content.js`, `bridge.js`, `popup.js` → `dist/`
 - `tsc` valida tipos; `rootDir: src`, `outDir: dist`
 - Manifest en `public/` — verificar que Vite lo copie (si no, copiar manualmente a dist)
 
@@ -148,6 +203,70 @@ Botón: `btn btn-xs btn-info btn-tce-add-cart`, HTML `+ 🛒`, estilos inline co
 | `traslados.html` | `/list-transfer/...` | 10 traslados, 10 botones |
 
 Tests extraen `let data = JSON.parse('...')` con regex y usan JSDOM.
+
+## Scraper con Playwright (`scraper/`)
+
+Para capturar páginas **vivas** de BookingMotor (mejor que "Guardar como", porque corre el JS y expone `window.data`, selects dinámicos, hidden inputs).
+
+### Setup (una vez, en cada PC nuevo)
+
+```bash
+npm install
+npx playwright install chromium   # descarga el navegador (obligatorio por PC)
+```
+
+En Windows/PowerShell, si `npm` da error de ExecutionPolicy, usa `npm.cmd` / `npx.cmd`
+o ejecuta una vez: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+### Credenciales (`.env` en la raíz, NO se commitea)
+
+```
+BM_URL=https://reservas.grupostravel.com/es/backoffice/
+BM_EMAIL=<usuario>
+BM_PASSWORD=<password>
+```
+
+### Comandos
+
+```bash
+npm run scrape:login                                   # login AUTOMÁTICO con .env
+tsx scraper/run.ts login:manual                        # login manual (fallback)
+npm run scrape:capture -- <url> <slug>                 # captura una página
+```
+
+- `scrape:login` (`autoLogin`): abre Chromium headless, llena email/password desde `.env`, guarda la sesión en `scraper/.session/state.json`. Si faltan credenciales o no encuentra el form, cae a login manual.
+- `scrape:capture` (`captureBookingMotorPage`): reutiliza la sesión, navega, espera `window.data` (hasta 15s), y exporta a `scraper/captures/<timestamp>_<slug>/`:
+  - `capture.json` → url, `pageKind`, `windowData`, inventario de campos `searchhotel[...]`/`searchtransfer[...]` (name, id, type, value, options, visible), `selectorHints`.
+  - `screenshot.png`, y opcionalmente `form.html` (`#search_hotel`/`#search_transfer`) y `results.html` (`#list-*-items`).
+
+### Módulos
+
+| Archivo | Rol |
+|---------|-----|
+| `scraper/env.ts` | Cargador `.env` sin dependencias |
+| `scraper/paths.ts` | Rutas de sesión/capturas, timestamp slug |
+| `scraper/auth.ts` | `autoLogin` / `manualLogin` / `ensureSession` |
+| `scraper/capture.ts` | Navegación + extracción DOM/JS + artefactos |
+| `scraper/run.ts` | CLI (`login`, `login:manual`, `capture`) |
+| `scraper/types.ts` | Tipos de la captura |
+
+### Nota técnica (tsx + Playwright)
+
+`tsx`/esbuild envuelve los callbacks de `page.evaluate()` con un helper `__name`
+que no existe en el navegador. Se define como no-op vía
+`page.addInitScript('window.__name = window.__name || (f => f)')` en `capture.ts`.
+
+### Capturas de referencia ya tomadas
+
+Ambas de la misma reserva (San Andrés, 16-07-2026, 2 adultos):
+
+| Producto | Campos clave capturados |
+|----------|-------------------------|
+| Hotel (`list-hotel`) | `checkin=16-07-2026`, `nights=3`, `listrooms[0][adults]=2`, destino ciudad `6024028` |
+| Traslado (`list-transfer`) | `from`=Aeropuerto ADZ (`pickup=1033386`), `to`=Hotel Isla Bonita (`dropoff=493123`), `checkin=16-07-2026`, `adults` |
+
+Confirman el mapeo de `SearchSyncController`: fechas y pasajeros se transfieren;
+el destino de traslado usa IDs `pickup`/`dropoff` del backend (no derivables del nombre de hotel).
 
 ## Convenciones al extender
 
@@ -170,6 +289,8 @@ URLs esperadas de BookingMotor:
 ## Decisiones de diseño
 
 1. **Extractor fusiona JS + DOM:** fechas y pasajeros vienen de `window.data`; nombres, precios y tarifas del HTML.
+   - **Fallback DOM (content.ts):** si `window.data` no llegó (bridge falló), al agregar al carrito se leen fechas/noches/ocupación (hotel) o fechas/pasajeros (traslado) desde el formulario `#search_hotel`/`#search_transfer` vía `BookingMotorSearchFormSync` (`resolveHotelSearchFields` / `resolveTransferSearchFields`). Esto evita items con "0 noches · 0 adultos".
+   - Las **noches** se calculan de `checkIn`/`checkOut` (`DD-MM-YYYY`) si no vienen explícitas.
 2. **UI injection separada de extracción:** `UIInjector` no parsea productos, solo inyecta y emite IDs.
 3. **Idempotencia:** `data-tce-injected` en filas/bloques para no duplicar botones en mutaciones.
 4. **No alert():** feedback visual vía carrito lateral.

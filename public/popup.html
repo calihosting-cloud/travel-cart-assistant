@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carrito GT — Configuración</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Carrito GT</h1>
+    <p>Configuración · cotizaciones · dominios</p>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-tab="config" role="tab" aria-selected="true">Config</button>
+    <button type="button" class="tab" data-tab="domains" role="tab" aria-selected="false">Dominios</button>
+    <button type="button" class="tab" data-tab="changelog" role="tab" aria-selected="false">Cambios</button>
+  </nav>
+
+  <section id="panel-config" class="panel active" role="tabpanel">
+    <p class="hint">
+      Líneas de <strong>incluye / no incluye / políticas</strong> para la cotización WhatsApp.
+      En el carrito marcas cuáles mostrar; aquí las agregas o editas.
+      (Más adelante se guardarán en PostgreSQL.)
+    </p>
+
+    <div class="config-block">
+      <h2>Tarifa incluye</h2>
+      <div id="list-include" class="line-list"></div>
+      <form class="add-form" data-kind="include">
+        <input name="emoji" type="text" maxlength="4" placeholder="✈️" aria-label="Emoji" />
+        <input name="text" type="text" required placeholder="Nueva línea incluye…" />
+        <button type="submit">+</button>
+      </form>
+    </div>
+
+    <div class="config-block">
+      <h2>Plan no incluye</h2>
+      <div id="list-exclude" class="line-list"></div>
+      <form class="add-form" data-kind="exclude">
+        <input name="emoji" type="text" maxlength="4" placeholder="🚫" aria-label="Emoji" />
+        <input name="text" type="text" required placeholder="Nueva línea no incluye…" />
+        <button type="submit">+</button>
+      </form>
+    </div>
+
+    <div class="config-block">
+      <h2>Nota importante (políticas)</h2>
+      <div id="list-policy" class="line-list"></div>
+      <form class="add-form" data-kind="policy">
+        <input name="emoji" type="text" maxlength="4" placeholder="" aria-label="Emoji" class="emoji-optional" />
+        <input name="text" type="text" required placeholder="Nueva política…" />
+        <button type="submit">+</button>
+      </form>
+    </div>
+
+    <button type="button" id="btn-reset-defaults" class="btn-secondary">Restaurar líneas por defecto</button>
+  </section>
+
+  <section id="panel-domains" class="panel" role="tabpanel">
+    <p class="hint">
+      Sitios donde la extensión inyecta <strong>Agregar al Carrito GT</strong>.
+    </p>
+    <article class="domain">
+      <span class="badge">Hoteles · Traslados</span>
+      <p class="domain-name">BookingMotor / Grupo Stravel</p>
+      <p class="domain-host">reservas.grupostravel.com</p>
+    </article>
+    <article class="domain">
+      <span class="badge">Vuelos</span>
+      <p class="domain-name">Despegar</p>
+      <p class="domain-host">*.despegar.com.co</p>
+    </article>
+    <article class="domain">
+      <span class="badge">Vuelos</span>
+      <p class="domain-name">XNet / Scape</p>
+      <p class="domain-host">scape.xnet.travel · *.xnet.travel</p>
+    </article>
+    <article class="domain">
+      <span class="badge badge--dev">Pruebas</span>
+      <p class="domain-name">Local / archivos</p>
+      <p class="domain-host">localhost · 127.0.0.1 · file://</p>
+    </article>
+  </section>
+
+  <section id="panel-changelog" class="panel" role="tabpanel">
+    <p class="hint">Historial de cambios del proyecto (más reciente arriba).</p>
+    <pre id="changelog-body" class="changelog">Cargando…</pre>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

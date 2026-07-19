@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Travel Cart Assistant",
-  "version": "1.0.0",
-  "description": "Asistente de captura de productos turísticos para agencias de viajes (Travel Capture Engine)",
+  "name": "Travel Cart Assistant GT",
+  "version": "1.0.3",
+  "description": "Carrito GT — captura productos turísticos (BookingMotor, Despegar, XNet) para asesores de viajes",
   "permissions": [
     "storage",
     "activeTab",
     "scripting"
   ],
+  "action": {
+    "default_title": "Carrito GT — dominios habilitados",
+    "default_popup": "popup.html"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -16,6 +20,10 @@
     {
       "matches": [
         "https://reservas.grupostravel.com/*",
+        "https://www.despegar.com.co/*",
+        "https://*.despegar.com.co/*",
+        "https://scape.xnet.travel/*",
+        "https://*.xnet.travel/*",
         "http://localhost/*",
         "http://127.0.0.1/*",
         "file://*/*"

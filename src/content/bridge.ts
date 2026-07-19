@@ -1,6 +1,25 @@
+// BookingMotor declares its search context as `let data = JSON.parse(...)` at the
+// top level of a classic script. A top-level `let`/`const` creates a *global
+// lexical binding* that is reachable as a bare identifier from another classic
+// script in the same realm (this bridge), but is NOT exposed as `window.data`.
+// Hence we must read the bare `data`, with `window.data` kept as a fallback for
+// older pages that used `var data`.
+declare const data: any;
+
 (function () {
+  const readPageData = (): any => {
+    const fromWindow = (window as any).data;
+    if (fromWindow) return fromWindow;
+    try {
+      if (typeof data !== 'undefined' && data) return data;
+    } catch (_e) {
+      // `data` not defined yet
+    }
+    return null;
+  };
+
   const sendData = () => {
-    const pageData = (window as any).data;
+    const pageData = readPageData();
     if (pageData) {
       window.postMessage(
         {
@@ -29,7 +48,7 @@
   const interval = setInterval(() => {
     attempts++;
     sendData();
-    if (attempts >= 15 || (window as any).data) {
+    if (attempts >= 15 || readPageData()) {
       clearInterval(interval);
     }
   }, 1000);

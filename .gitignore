@@ -17,6 +17,14 @@ dist.crx
 Thumbs.db
 *.log
 
-# Saved page assets (large; keep only the .html fixtures in repo)
-ejemplobusqueda_files/
-traslados_files/
+# Playwright scraper (session + captures stay local)
+scraper/.session/
+scraper/captures/
+
+# Heavy saved-page assets from "Save page as complete"
+Despegar_files/
+*_files/
+
+# Extracted Despegar checkout state dumps (regenerate with scraper/extractDespegar.ts)
+scraper/despegar_DATA.json
+scraper/despegar_DATA.raw.txt

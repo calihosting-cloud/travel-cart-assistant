@@ -1,0 +1,32 @@
+---
+description: Documentar cada cambio relevante en docs/CHANGELOG.md
+alwaysApply: true
+---
+
+# Changelog obligatorio
+
+Al completar un cambio **relevante** (feature, fix, refactor visible, decisión de diseño, o docs de producto), **añadir una entrada** al inicio de `docs/CHANGELOG.md` (debajo del encabezado / formato).
+
+## Qué documentar
+
+- Sí: comportamiento nuevo o cambiado, bugs corregidos, proveedores/selectores, storage keys, decisiones de diseño.
+- No: typos menores, reformateo puro, exploraciones scratch descartadas, commits vacíos de docs internos sin impacto.
+
+## Formato
+
+```markdown
+## YYYY-MM-DD — Título corto
+
+- **Added** / **Changed** / **Fixed** / **Docs**: una línea clara (efecto o motivo).
+```
+
+- Fecha = día del cambio (usar la fecha del entorno del usuario si está disponible).
+- Varios bullets del mismo día pueden ir bajo **una** entrada con el mismo título temático, o entradas separadas si son temas distintos.
+- No reescribir historial antiguo; solo agregar arriba.
+- Si el cambio actualiza `docs/CONTEXT.md` o `README.md`, mencionar eso en un bullet **Docs** cuando aporte contexto.
+
+## Cuándo
+
+Documentar en la **misma sesión** en que se implementa el cambio, no dejarlo “para después”. Si el usuario pide commit, el changelog ya debería estar actualizado.
+
+Tras editar `docs/CHANGELOG.md`, copiar también a `public/CHANGELOG.md` (el popup de la extensión lo muestra en la pestaña Cambios).

@@ -1,0 +1,296 @@
+import { SearchContext } from '../engine/core/types';
+import {
+  BookingMotorSearchFormSync,
+  SearchFormType,
+} from '../engine/providers/bookingmotor/BookingMotorSearchFormSync';
+
+const STORAGE_KEY = 'tce_last_search';
+const PREFILLED_ATTR = 'data-tce-prefilled';
+const CAPTURE_DEBOUNCE_MS = 500;
+const CONTEXT_TTL_MS = 1000 * 60 * 60 * 12; // ignore contexts older than 12h
+
+/**
+ * Carries the passenger/date context between BookingMotor search tabs.
+ *
+ * - Captures the active search form whenever the advisor edits it.
+ * - When a different (empty) form becomes visible, pre-fills the shared fields
+ *   (dates, passengers, children ages, nationality) and shows a hint banner.
+ *
+ * Destination is never auto-written because transfers need backend
+ * pickup/dropoff IDs that can't be derived from a hotel name.
+ */
+export class SearchSyncController {
+  private sync = new BookingMotorSearchFormSync();
+  private context: SearchContext | null = null;
+  private isApplying = false;
+  private captureTimer: number | null = null;
+
+  async init(): Promise<void> {
+    await this.loadContext();
+
+    document.addEventListener('change', this.onFormMutated, true);
+    document.addEventListener('input', this.onFormMutated, true);
+    document.addEventListener('submit', this.onFormSubmit, true);
+
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !changes[STORAGE_KEY]) return;
+        const next = changes[STORAGE_KEY].newValue as SearchContext | undefined;
+        if (!next || next.sourceType === 'flight') return;
+        if (Date.now() - next.savedAt >= CONTEXT_TTL_MS) return;
+        this.context = next;
+        this.tryPrefillVisibleForm();
+      });
+    } catch {
+      // storage.onChanged unavailable (e.g. test harness)
+    }
+
+    const observer = new MutationObserver(() => this.tryPrefillVisibleForm());
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden'],
+    });
+
+    // Seed from a form that already has a destination (advisor searched or typed).
+    // Do NOT capture bare site defaults (empty transfer with a default check-in),
+    // or they would overwrite a good hotel→transfer context.
+    this.captureBestAvailableForm({ requireDestination: true });
+    this.tryPrefillVisibleForm();
+  }
+
+  private onFormMutated = (event: Event): void => {
+    if (this.isApplying) return;
+    const target = event.target as HTMLElement | null;
+    const name = target?.getAttribute?.('name');
+    if (!name || (!name.startsWith('searchhotel[') && !name.startsWith('searchtransfer['))) return;
+    this.scheduleCapture();
+  };
+
+  private onFormSubmit = (event: Event): void => {
+    if (this.isApplying) return;
+    const form = (event.target as HTMLElement | null)?.closest?.('form') as HTMLFormElement | null;
+    if (!form) return;
+    const id = form.id || form.getAttribute('name') || '';
+    if (id !== 'search_hotel' && id !== 'search_transfer') return;
+    // Flush immediately so the query isn't lost if the page navigates away.
+    this.captureForm(form, id === 'search_hotel' ? 'hotel' : 'transfer');
+  };
+
+  private scheduleCapture(): void {
+    if (this.captureTimer !== null) clearTimeout(this.captureTimer);
+    this.captureTimer = window.setTimeout(() => this.captureBestAvailableForm(), CAPTURE_DEBOUNCE_MS);
+  }
+
+  /** Prefer the visible tab; otherwise pull data from any form that has dates/pax. */
+  private captureBestAvailableForm(opts?: { requireDestination?: boolean }): void {
+    const visible = this.sync.getVisibleForm(document);
+    if (visible) {
+      if (opts?.requireDestination && !this.formHasDestination(visible.form, visible.type)) return;
+      this.captureForm(visible.form, visible.type);
+      return;
+    }
+
+    for (const type of ['hotel', 'transfer'] as SearchFormType[]) {
+      const form = this.sync.getForm(document, type);
+      if (!form) continue;
+      if (opts?.requireDestination && !this.formHasDestination(form, type)) continue;
+      const context = this.sync.capture(form, type);
+      if (context.checkIn || context.totalAdults > 0 || context.totalChildren > 0) {
+        this.persistContext(context);
+        return;
+      }
+    }
+  }
+
+  private captureForm(form: HTMLFormElement, type: SearchFormType): void {
+    const context = this.sync.capture(form, type);
+    // Ignore empty snapshots (nothing meaningful entered yet).
+    if (!context.checkIn && context.totalAdults === 0 && context.totalChildren === 0) return;
+    this.persistContext(context);
+  }
+
+  private persistContext(context: SearchContext): void {
+    this.context = context;
+    void this.saveContext(context);
+  }
+
+  private tryPrefillVisibleForm(): void {
+    if (this.isApplying || !this.context) return;
+    // Flight summaries share storage for the cart header but must never drive BM forms.
+    if (this.context.sourceType === 'flight') return;
+
+    const visible = this.sync.getVisibleForm(document);
+    if (!visible) return;
+
+    const { type, form } = visible;
+    if (form.getAttribute(PREFILLED_ATTR) === '1') return;
+
+    // BookingMotor often pre-fills a default check-in date on empty transfer
+    // forms, so "has a date" is NOT the same as "advisor already filled this".
+    // Only skip when the form already matches our stored context, or the
+    // advisor already typed a destination (hotel name / pickup / dropoff).
+    if (this.formAlreadySynced(form, type, this.context)) {
+      form.setAttribute(PREFILLED_ATTR, '1');
+      return;
+    }
+    if (this.formHasDestination(form, type)) return;
+
+    this.isApplying = true;
+    try {
+      const changed = this.sync.apply(form, type, this.context);
+      form.setAttribute(PREFILLED_ATTR, '1');
+      if (changed) this.showBanner(form, type, this.context);
+
+      // Age selects are rendered after the children count changes — fill on next tick.
+      if (this.context.totalChildren > 0 || this.context.childrenAges.length > 0) {
+        window.setTimeout(() => {
+          try {
+            this.sync.apply(form, type, this.context!);
+          } catch {
+            // ignore
+          }
+        }, 150);
+      }
+    } catch (err) {
+      console.error('[TCE] Search prefill failed:', err);
+    } finally {
+      // Allow the site's own change handlers to run before re-enabling capture.
+      window.setTimeout(() => {
+        this.isApplying = false;
+      }, 0);
+    }
+  }
+
+  /** True when dates + passengers already match the stored context. */
+  private formAlreadySynced(
+    form: HTMLFormElement,
+    type: SearchFormType,
+    ctx: SearchContext
+  ): boolean {
+    const prefix = type === 'hotel' ? 'searchhotel' : 'searchtransfer';
+    const checkIn = form.querySelector<HTMLInputElement>(`[name="${prefix}[checkin]"]`)?.value.trim();
+    if (!ctx.checkIn || !checkIn || checkIn !== ctx.checkIn) return false;
+
+    if (type === 'transfer') {
+      const adults = Number(
+        form.querySelector<HTMLSelectElement>('[name="searchtransfer[adults]"]')?.value ?? ''
+      );
+      const children = Number(
+        form.querySelector<HTMLSelectElement>('[name="searchtransfer[children]"]')?.value ?? ''
+      );
+      return adults === ctx.totalAdults && children === ctx.totalChildren;
+    }
+
+    // Hotel: matching check-in + occupancy is enough to treat as synced.
+    const adults = Number(
+      form.querySelector<HTMLSelectElement>('[name="searchhotel[listrooms][0][adults]"]')?.value ?? ''
+    );
+    return adults === (ctx.rooms[0]?.adults ?? ctx.totalAdults);
+  }
+
+  /**
+   * Destination / pickup fields signal the advisor already started this form —
+   * never overwrite those flows. Dates alone do not count (site defaults).
+   */
+  private formHasDestination(form: HTMLFormElement, type: SearchFormType): boolean {
+    if (type === 'hotel') {
+      const destiny = form.querySelector<HTMLInputElement>('[name="searchhotel[destiny]"]')?.value.trim();
+      const destinyId = form.querySelector<HTMLInputElement>('[name="searchhotel[destiny_id]"]')?.value.trim();
+      return !!destiny || !!destinyId;
+    }
+    const from = form.querySelector<HTMLInputElement>('[name="searchtransfer[from]"]')?.value.trim();
+    const to = form.querySelector<HTMLInputElement>('[name="searchtransfer[to]"]')?.value.trim();
+    const pickup = form.querySelector<HTMLInputElement>('[name="searchtransfer[pickup]"]')?.value.trim();
+    const dropoff = form.querySelector<HTMLInputElement>('[name="searchtransfer[dropoff]"]')?.value.trim();
+    return !!from || !!to || !!pickup || !!dropoff;
+  }
+
+  // -------------------------------------------------------------------------
+  // Banner
+  // -------------------------------------------------------------------------
+
+  private showBanner(form: HTMLFormElement, type: SearchFormType, ctx: SearchContext): void {
+    const doc = form.ownerDocument;
+    const existing = form.querySelector('.tce-prefill-note');
+    if (existing) existing.remove();
+
+    const pax: string[] = [];
+    if (ctx.totalAdults > 0) pax.push(`${ctx.totalAdults} adulto${ctx.totalAdults !== 1 ? 's' : ''}`);
+    if (ctx.totalChildren > 0) pax.push(`${ctx.totalChildren} niño${ctx.totalChildren !== 1 ? 's' : ''}`);
+
+    const bits: string[] = [];
+    if (ctx.checkIn) bits.push(`fecha ${ctx.checkIn}`);
+    if (pax.length) bits.push(pax.join(', '));
+
+    const note = doc.createElement('div');
+    note.className = 'tce-prefill-note';
+    note.setAttribute('style', [
+      'display:flex',
+      'align-items:flex-start',
+      'gap:8px',
+      'margin:0 0 12px',
+      'padding:8px 10px',
+      'border:1px solid #bfdbfe',
+      'border-left:3px solid #2563eb',
+      'border-radius:6px',
+      'background:#eff6ff',
+      'color:#1e3a8a',
+      'font-size:12px',
+      'line-height:1.4',
+    ].join(';'));
+
+    const destHint =
+      type === 'transfer' && ctx.destinationText
+        ? ` Escribe el destino en <strong>Desde/Hasta</strong> (búsqueda previa: ${this.escape(ctx.destinationText)}).`
+        : type === 'hotel' && ctx.destinationText
+          ? ` Verifica el <strong>Destino</strong> (búsqueda previa: ${this.escape(ctx.destinationText)}).`
+          : '';
+
+    note.innerHTML =
+      `<span>Precargamos ${bits.length ? this.escape(bits.join(' · ')) : 'los datos'} de tu búsqueda anterior.` +
+      `${destHint}</span>` +
+      `<button type="button" class="tce-prefill-close" aria-label="Cerrar" ` +
+      `style="margin-left:auto;background:none;border:none;color:#1e3a8a;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;">✕</button>`;
+
+    note.querySelector('.tce-prefill-close')?.addEventListener('click', () => note.remove());
+
+    form.prepend(note);
+  }
+
+  private escape(text: string): string {
+    const el = document.createElement('span');
+    el.textContent = text;
+    return el.innerHTML;
+  }
+
+  // -------------------------------------------------------------------------
+  // Storage
+  // -------------------------------------------------------------------------
+
+  private async loadContext(): Promise<void> {
+    try {
+      const result = await chrome.storage.local.get(STORAGE_KEY);
+      const stored = result[STORAGE_KEY] as SearchContext | undefined;
+      // Ignore flight-only summaries — they must not drive BM form prefill.
+      if (
+        stored &&
+        stored.sourceType !== 'flight' &&
+        Date.now() - stored.savedAt < CONTEXT_TTL_MS
+      ) {
+        this.context = stored;
+      }
+    } catch {
+      // storage unavailable (e.g. test harness)
+    }
+  }
+
+  private async saveContext(context: SearchContext): Promise<void> {
+    try {
+      await chrome.storage.local.set({ [STORAGE_KEY]: context });
+    } catch {
+      // storage unavailable
+    }
+  }
+}

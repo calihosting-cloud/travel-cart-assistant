@@ -86,7 +86,9 @@ export class BookingMotorUIInjector extends UIInjector {
     const btn = doc.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-xs btn-info btn-tce-add-cart';
-    btn.innerHTML = '<i class="fa-regular fa-plus"></i> + 🛒';
+    btn.title = 'Agregar al Carrito GT';
+    btn.setAttribute('aria-label', 'Agregar al Carrito GT');
+    btn.innerHTML = '<i class="fa-regular fa-plus"></i> + 🛒 GT';
     btn.style.marginLeft = '5px';
     btn.style.padding = '1px 5px';
     btn.style.fontSize = '11px';

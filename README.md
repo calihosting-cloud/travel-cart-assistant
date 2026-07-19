@@ -2,6 +2,8 @@
 
 Extensión de Chrome para asesores de viajes que captura productos turísticos desde **BookingMotor** (Grupo Stravel) y los agrega a un carrito lateral.
 
+**Log de cambios:** [docs/CHANGELOG.md](docs/CHANGELOG.md) — documentar cada cambio relevante ahí.
+
 ## Estado actual
 
 | Fase | Funcionalidad | Estado |
@@ -10,7 +12,17 @@ Extensión de Chrome para asesores de viajes que captura productos turísticos d
 | Phase 2 | Botón **+ 🛒** por tarifa de hotel | ✅ |
 | Phase 2+ | Carrito lateral con persistencia | ✅ |
 | Phase 3 | Captura de traslados | ✅ |
+| Phase 4 | Sincronización de búsqueda entre pestañas (fechas/pasajeros) | ✅ |
+| Phase 4+ | Resumen de búsqueda en encabezado del carrito | ✅ |
+| Phase 4+ | Fees editables en el total (scaffold) | ✅ |
+| Phase 4+ | Mayor valor cobrado + Redondear (decena de mil) | ✅ |
+| Phase 4+ | Popup extensión: dominios habilitados | ✅ |
+| Phase 4+ | Cotización WhatsApp + config incluye/no incluye | ✅ |
+| Phase 5 | Scraper Playwright para capturar fixtures vivos | ✅ |
+| Pendiente | Export PDF de cotización | 🔜 |
+| Pendiente | PostgreSQL: incluye/no incluye y cotizaciones | 🔜 |
 | Pendiente | Carrito que empuja la página (no overlay) | 🔜 |
+| Pendiente | Fees por moneda / conversión | 🔜 |
 | Pendiente | Vuelos, tours, actividades | 🔜 |
 
 ## Productos soportados
@@ -65,6 +77,7 @@ Las carpetas `*_files/` con assets no están en Git (son muy pesadas). Para prue
 ```bash
 npx tsx scratch/test_parser.ts          # Hoteles
 npx tsx scratch/test_transfer_parser.ts # Traslados
+npx tsx scratch/test_search_sync.ts     # Sincronización de búsqueda entre pestañas
 ```
 
 ## Arquitectura (resumen)
@@ -92,16 +105,39 @@ Documentación detallada para agentes y desarrolladores: [`docs/CONTEXT.md`](doc
 
 Guía para publicar en GitHub: [`docs/GITHUB_SETUP.md`](docs/GITHUB_SETUP.md).
 
+## Carrito: resumen y fees
+
+- **Encabezado:** muestra un resumen de la búsqueda actual (destino · fechas · adultos/niños), tomado de `tce_last_search` y actualizado en vivo.
+- **Fees:** dos campos editables (`Fee de ejemplo 1`, `Fee de ejemplo 2`, por defecto 0) que se suman al total. Son un scaffold: para agregar un fee real (bancario, administrativo, etc.) se añade una entrada a `FEE_DEFINITIONS` en `src/ui/CartSidebar.ts`. Persisten en `tce_fees`.
+
+## Scraper (capturar fixtures vivos de BookingMotor)
+
+Ver detalle en [`docs/CONTEXT.md`](docs/CONTEXT.md#scraper-con-playwright-scraper).
+
+```bash
+npm install
+npx playwright install chromium          # una vez por PC
+# crear .env con BM_URL, BM_EMAIL, BM_PASSWORD
+npm run scrape:login                      # login automático, guarda sesión
+npm run scrape:capture -- "<url>" <slug>  # exporta capture.json + html + screenshot
+```
+
+> Windows/PowerShell: usa `npm.cmd`/`npx.cmd` si aparece error de ExecutionPolicy.
+
 ## Scripts
 
 | Comando | Descripción |
 |---------|-------------|
 | `npm run dev` | Build en modo watch |
 | `npm run build` | TypeScript + Vite → `dist/` |
+| `npm run scrape:login` | Login automático a BookingMotor (usa `.env`) |
+| `npm run scrape:capture -- <url> <slug>` | Captura una página viva |
 
 ## Roadmap
 
 - [ ] Carrito lateral que desplace el contenido (no superpuesto)
+- [ ] Fees por moneda / conversión de divisas
+- [ ] Automatizar búsquedas completas con Playwright (llenar form + buscar)
 - [ ] Captura de vuelos (`list-flight`)
 - [ ] Captura de tours / actividades
 - [ ] Exportar carrito / sincronizar con backend
