@@ -151,12 +151,20 @@ Botón: `btn btn-xs btn-info btn-tce-add-cart`, HTML `+ 🛒`, estilos inline co
   - `tce_cart_items` → productos del carrito.
   - `tce_last_search` → `SearchContext` (compartido con `SearchSyncController`).
   - `tce_fees` → valores de los fees (`Record<feeId, number>`).
-- **Resumen de búsqueda en el encabezado:** franja azul bajo "Mi Carrito" con destino + fechas + adultos/niños. Se alimenta de `tce_last_search` y se refresca en vivo vía `chrome.storage.onChanged`.
+  - `tce_client_name` → cliente de la cotización (historial; no WhatsApp).
+  - `tce_pending_quote` / `tce_quote_seq` → número de cotización de la sesión (`CAR001`…).
+- **Pestañas internas** (con items): **Productos** · **Total** · **WhatsApp** · **Historial**.
+- **Encabezado:** resumen (origen desde vuelo si hay + destino/fechas/pax) y campo **CLIENTE:**.
+- Cada ítem puede tener `sourceUrl` (página al agregar) y un icono **↗** para reabrir esa búsqueda.
 - **Pendiente:** cambiar de overlay a layout push (margin-right en body).
+
+### Ajustes por ítem (Productos)
+
+Cada `CartItem` puede guardar `mayorValor` y `redondeo` (internamente COP). **Total del ítem** = precio base convertido a la **vista** activa (COP|USD con TRM) + ajustes. En la barra TRM hay toggle **COP | USD** para unificar el carrito.
 
 ### Fees (cargos adicionales)
 
-Bloque de cargos editables en el footer.
+Bloque de cargos editables en la pestaña **Total** (gran total; no sustituye los ajustes por ítem).
 
 - Definición en `CartSidebar.ts`:
   ```ts
@@ -168,7 +176,7 @@ Bloque de cargos editables en el footer.
 - **Mayor valor cobrado:** ajuste manual del asesor (ítems faltantes / extras).
 - **Redondeo:** solo el excedente del botón Redondear (editable también a mano).
 - Cada fee es un `<input type="number">` (mín. 0). Al editar, se guarda en `tce_fees` y se actualiza **solo** `.tce-totals` (para no perder el foco del input).
-- **Totales:** subtotal + mayor valor (si > 0) + redondeo (si > 0) → Total en moneda primaria.
+- **Totales:** subtotal (ítems con sus ajustes) + mayor valor (si > 0) + redondeo (si > 0) + TA → Total en moneda primaria.
 
 ### Popup de la extensión
 
@@ -182,12 +190,14 @@ Bloque de cargos editables en el footer.
 
 ### Cotización WhatsApp
 
-En el footer del carrito → **Cotización WhatsApp**:
+Pestaña **WhatsApp** del carrito:
 
 - Checkboxes de las líneas habilitadas (sincronizadas con Config).
-- **Copiar WhatsApp** / **Vista previa**: genera texto estilo agencia (destino, fechas, itinerario aéreo, hotel como OPCIÓN, tarifa por persona desde el **gran total**, depósito, incluye/no incluye, políticas).
-- Motor: `src/ui/QuoteBuilder.ts` + defaults en `src/shared/quoteConfig.ts`.
-- **Pendiente:** export PDF; persistencia PostgreSQL del listado incluye/no incluye y de cotizaciones guardadas.
+- Chulito **Incluir conversión COP ↔ USD** (apagado por defecto).
+- **Copiar WhatsApp** / **Actualizar texto**: genera texto (`DESTINO …`, incluye/no incluye, vuelos/servicios/hotel, notas). Ref `CAR###`.
+- Al copiar o vaciar se guarda/actualiza el **Historial** (mismo `CAR###` no se duplica; cliente sí se guarda ahí).
+- Motor: `src/ui/QuoteBuilder.ts` + `src/shared/quoteHistory.ts` + defaults en `src/shared/quoteConfig.ts`.
+- **Pendiente:** export PDF; persistencia PostgreSQL.
 
 ## Build
 

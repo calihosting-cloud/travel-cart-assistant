@@ -20,6 +20,10 @@ export interface HotelRoomRate {
   currency: string;
   originalPrice?: number;
   originalCurrency?: string;
+  /** When BookingMotor shows a multi-room solution total, how many rooms it covers. */
+  roomsCount?: number;
+  /** Average / indicative per-room share of `price` when roomsCount > 1. */
+  pricePerRoom?: number;
   supplierName: string; // The backend provider e.g. "TBO Holidays", "Hotelbeds"
   status: 'available' | 'onRequest' | 'soldOut';
   bookingUrl?: string;
@@ -71,7 +75,19 @@ export interface TransferProduct extends BaseProduct {
   bookingUrl?: string;
 }
 
-export interface HotelCartItem {
+export interface CartItemAdjustments {
+  /** Extra charged on this service (COP); added to the item line total. */
+  mayorValor?: number;
+  /** Rounding top-up for this service (COP); added to the item line total. */
+  redondeo?: number;
+  /**
+   * Page URL when the item was added (search results / listing).
+   * Used to reopen the same search from the cart.
+   */
+  sourceUrl?: string;
+}
+
+export interface HotelCartItem extends CartItemAdjustments {
   type: 'hotel';
   id: string;
   hotelId: string;
@@ -84,10 +100,11 @@ export interface HotelCartItem {
   nights: number;
   occupancy: Occupancy[];
   selectedRate: HotelRoomRate;
+  bookingUrl?: string;
   addedAt: number;
 }
 
-export interface TransferCartItem {
+export interface TransferCartItem extends CartItemAdjustments {
   type: 'transfer';
   id: string;
   transferId: string;
@@ -106,6 +123,44 @@ export interface TransferCartItem {
   legs: TransferLeg[];
   price: number;
   currency: string;
+  priceUsd?: number;
+  supplierName: string;
+  imageUrl?: string;
+  bookingUrl?: string;
+  addedAt: number;
+}
+
+export interface ActivityCartItem extends CartItemAdjustments {
+  type: 'activity';
+  id: string;
+  activityId: string;
+  name: string;
+  description?: string;
+  checkIn: string;
+  checkOut?: string;
+  adults: number;
+  children: number;
+  price: number;
+  currency: string;
+  priceUsd?: number;
+  supplierName: string;
+  imageUrl?: string;
+  bookingUrl?: string;
+  addedAt: number;
+}
+
+export interface InsuranceCartItem extends CartItemAdjustments {
+  type: 'insurance';
+  id: string;
+  insuranceId: string;
+  name: string;
+  planLabel?: string;
+  checkIn: string;
+  checkOut?: string;
+  passengers: number;
+  price: number;
+  currency: string;
+  priceUsd?: number;
   supplierName: string;
   imageUrl?: string;
   bookingUrl?: string;
@@ -165,10 +220,12 @@ export interface FlightProduct extends BaseProduct {
   price: number;
   currency: string;
   priceBreakdown: FlightPriceBreakdownItem[];
+  /** Baggage/services explicitly included in the selected fare. */
+  baggageIncluded?: string[];
   bookingUrl?: string;
 }
 
-export interface FlightCartItem {
+export interface FlightCartItem extends CartItemAdjustments {
   type: 'flight';
   id: string;
   provider: string;
@@ -187,11 +244,18 @@ export interface FlightCartItem {
   price: number;
   currency: string;
   priceBreakdown: FlightPriceBreakdownItem[];
+  /** Baggage/services explicitly included in the selected fare. */
+  baggageIncluded?: string[];
   bookingUrl?: string;
   addedAt: number;
 }
 
-export type CartItem = HotelCartItem | TransferCartItem | FlightCartItem;
+export type CartItem =
+  | HotelCartItem
+  | TransferCartItem
+  | FlightCartItem
+  | ActivityCartItem
+  | InsuranceCartItem;
 
 export interface RoomOccupancy {
   adults: number;
@@ -209,7 +273,7 @@ export interface RoomOccupancy {
  * reconstructed from a hotel name, so it is never auto-applied.
  */
 export interface SearchContext {
-  sourceType: 'hotel' | 'transfer' | 'flight';
+  sourceType: 'hotel' | 'transfer' | 'flight' | 'activity' | 'insurance';
   checkIn?: string; // DD-MM-YYYY
   checkOut?: string; // DD-MM-YYYY
   nights?: number;
@@ -219,6 +283,8 @@ export interface SearchContext {
   childrenAges: number[];
   nationality?: string; // option value code
   destinationText?: string;
+  /** Departure city / airport (from flights; not used for hotel-only searches). */
+  originText?: string;
   savedAt: number;
 }
 

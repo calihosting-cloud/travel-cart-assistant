@@ -19,6 +19,31 @@ export interface DOMTransferData {
   legs: TransferLeg[];
   price: number;
   currency: string;
+  priceUsd?: number;
+  supplierName: string;
+  imageUrl?: string;
+  bookingUrl?: string;
+}
+
+export interface DOMActivityData {
+  activityId: string;
+  name: string;
+  description?: string;
+  price: number;
+  currency: string;
+  priceUsd?: number;
+  supplierName: string;
+  imageUrl?: string;
+  bookingUrl?: string;
+}
+
+export interface DOMInsuranceData {
+  insuranceId: string;
+  name: string;
+  planLabel?: string;
+  price: number;
+  currency: string;
+  priceUsd?: number;
   supplierName: string;
   imageUrl?: string;
   bookingUrl?: string;

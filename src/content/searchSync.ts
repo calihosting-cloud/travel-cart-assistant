@@ -36,7 +36,11 @@ export class SearchSyncController {
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== 'local' || !changes[STORAGE_KEY]) return;
         const next = changes[STORAGE_KEY].newValue as SearchContext | undefined;
-        if (!next || next.sourceType === 'flight') return;
+        if (!next) {
+          this.context = null;
+          return;
+        }
+        if (next.sourceType === 'flight') return;
         if (Date.now() - next.savedAt >= CONTEXT_TTL_MS) return;
         this.context = next;
         this.tryPrefillVisibleForm();
@@ -169,25 +173,51 @@ export class SearchSyncController {
     type: SearchFormType,
     ctx: SearchContext
   ): boolean {
-    const prefix = type === 'hotel' ? 'searchhotel' : 'searchtransfer';
+    const prefixMap: Record<SearchFormType, string> = {
+      hotel: 'searchhotel',
+      transfer: 'searchtransfer',
+      activity: 'searchactivity',
+      insurance: 'searchinsurance',
+    };
+    const prefix = prefixMap[type];
     const checkIn = form.querySelector<HTMLInputElement>(`[name="${prefix}[checkin]"]`)?.value.trim();
     if (!ctx.checkIn || !checkIn || checkIn !== ctx.checkIn) return false;
 
-    if (type === 'transfer') {
+    if (type === 'transfer' || type === 'activity') {
       const adults = Number(
-        form.querySelector<HTMLSelectElement>('[name="searchtransfer[adults]"]')?.value ?? ''
+        form.querySelector<HTMLSelectElement>(`[name="${prefix}[adults]"]`)?.value ?? ''
       );
       const children = Number(
-        form.querySelector<HTMLSelectElement>('[name="searchtransfer[children]"]')?.value ?? ''
+        form.querySelector<HTMLSelectElement>(`[name="${prefix}[children]"]`)?.value ?? ''
       );
       return adults === ctx.totalAdults && children === ctx.totalChildren;
     }
 
-    // Hotel: matching check-in + occupancy is enough to treat as synced.
-    const adults = Number(
-      form.querySelector<HTMLSelectElement>('[name="searchhotel[listrooms][0][adults]"]')?.value ?? ''
-    );
-    return adults === (ctx.rooms[0]?.adults ?? ctx.totalAdults);
+    if (type === 'insurance') {
+      const pax = Number(
+        form.querySelector<HTMLSelectElement>('[name="searchinsurance[passengers]"]')?.value ?? ''
+      );
+      return pax === ctx.totalAdults + ctx.totalChildren;
+    }
+
+    // Multi-room: compare totals, not only habitación 1 (room[0]).
+    let adults = 0;
+    let children = 0;
+    for (let r = 0; ; r++) {
+      const adultsSel = form.querySelector<HTMLSelectElement>(
+        `[name="searchhotel[listrooms][${r}][adults]"]`
+      );
+      if (!adultsSel) break;
+      const roomsSel = form.querySelector<HTMLSelectElement>('[name="searchhotel[rooms]"]');
+      const declared = roomsSel ? Number(roomsSel.value || '1') : null;
+      if (declared !== null && r >= declared) break;
+      adults += Number(adultsSel.value || '0');
+      children += Number(
+        form.querySelector<HTMLSelectElement>(`[name="searchhotel[listrooms][${r}][children]"]`)
+          ?.value ?? '0'
+      );
+    }
+    return adults === ctx.totalAdults && children === ctx.totalChildren;
   }
 
   /**
@@ -199,6 +229,17 @@ export class SearchSyncController {
       const destiny = form.querySelector<HTMLInputElement>('[name="searchhotel[destiny]"]')?.value.trim();
       const destinyId = form.querySelector<HTMLInputElement>('[name="searchhotel[destiny_id]"]')?.value.trim();
       return !!destiny || !!destinyId;
+    }
+    if (type === 'activity') {
+      const destiny = form.querySelector<HTMLInputElement>('[name="searchactivity[destiny]"]')?.value.trim();
+      const destination = form
+        .querySelector<HTMLInputElement>('[name="searchactivity[destination]"]')
+        ?.value.trim();
+      return !!destiny || !!destination;
+    }
+    if (type === 'insurance') {
+      // Origin/destiny country selects usually have defaults — don't block prefill.
+      return false;
     }
     const from = form.querySelector<HTMLInputElement>('[name="searchtransfer[from]"]')?.value.trim();
     const to = form.querySelector<HTMLInputElement>('[name="searchtransfer[to]"]')?.value.trim();
@@ -249,7 +290,8 @@ export class SearchSyncController {
           : '';
 
     note.innerHTML =
-      `<span>Precargamos ${bits.length ? this.escape(bits.join(' · ')) : 'los datos'} de tu búsqueda anterior.` +
+      `<span><span style="color:#dc2626;font-weight:700;margin-right:4px" title="Advertencia" aria-label="Advertencia">▲</span>` +
+      `Precargamos ${bits.length ? this.escape(bits.join(' · ')) : 'los datos'} de tu búsqueda anterior.` +
       `${destHint}</span>` +
       `<button type="button" class="tce-prefill-close" aria-label="Cerrar" ` +
       `style="margin-left:auto;background:none;border:none;color:#1e3a8a;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;">✕</button>`;

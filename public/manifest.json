@@ -1,16 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Travel Cart Assistant GT",
-  "version": "1.0.3",
-  "description": "Carrito GT — captura productos turísticos (BookingMotor, Despegar, XNet) para asesores de viajes",
+  "version": "1.0.33",
+  "description": "Carrito GT — BookingMotor, Despegar, XNet, Avianca, Wingo, JetSMART",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://www.dolar-colombia.com/*"
   ],
   "action": {
     "default_title": "Carrito GT — dominios habilitados",
     "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "log.html",
+    "open_in_tab": true
   },
   "background": {
     "service_worker": "background.js",
@@ -24,6 +32,13 @@
         "https://*.despegar.com.co/*",
         "https://scape.xnet.travel/*",
         "https://*.xnet.travel/*",
+        "https://booking.avianca.com/*",
+        "https://*.avianca.com/*",
+        "https://www.avianca.com/*",
+        "https://booking.wingo.com/*",
+        "https://*.wingo.com/*",
+        "https://booking.jetsmart.com/*",
+        "https://*.jetsmart.com/*",
         "http://localhost/*",
         "http://127.0.0.1/*",
         "file://*/*"

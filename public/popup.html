@@ -26,6 +26,40 @@
     </p>
 
     <div class="config-block">
+      <h2>Tarifa administrativa (TA)</h2>
+      <p class="hint" style="margin-top:0">
+        Valores anuales (COP / USD). En Total se elige el tipo y se calcula TA × pasajeros.
+      </p>
+      <div class="ta-grid">
+        <label>
+          Nacional ida y vuelta (COP)
+          <input id="ta-nacional-rt" type="number" min="0" step="500" />
+        </label>
+        <label>
+          Nacional solo ida (COP)
+          <input id="ta-nacional-ow" type="number" min="0" step="500" />
+        </label>
+        <label>
+          Internacional (USD)
+          <input id="ta-internacional-usd" type="number" min="0" step="1" />
+        </label>
+      </div>
+    </div>
+
+    <div class="config-block">
+      <h2>Suplemento TRM</h2>
+      <p class="hint" style="margin-top:0">
+        Pesos que se suman a la TRM del día al convertir USD → COP (colchón si el dólar sube).
+      </p>
+      <div class="ta-grid">
+        <label>
+          Suplemento TRM (COP)
+          <input id="trm-suplemento" type="number" min="0" step="10" />
+        </label>
+      </div>
+    </div>
+
+    <div class="config-block">
       <h2>Tarifa incluye</h2>
       <div id="list-include" class="line-list"></div>
       <form class="add-form" data-kind="include">
@@ -76,6 +110,18 @@
       <span class="badge">Vuelos</span>
       <p class="domain-name">XNet / Scape</p>
       <p class="domain-host">scape.xnet.travel · *.xnet.travel</p>
+    </article>
+    <article class="domain">
+      <span class="badge">Vuelos</span>
+      <p class="domain-name">Avianca (resumen del viaje)</p>
+      <p class="domain-host">booking.avianca.com · *.avianca.com</p>
+      <p class="domain-meta">Botón en la página trip/resumen (`cartId`), no en todos los pasos previos.</p>
+    </article>
+    <article class="domain">
+      <span class="badge">Vuelos</span>
+      <p class="domain-name">Wingo</p>
+      <p class="domain-host">booking.wingo.com · *.wingo.com</p>
+      <p class="domain-meta">Botón en búsqueda / Vuelos (Total del header + URL).</p>
     </article>
     <article class="domain">
       <span class="badge badge--dev">Pruebas</span>

@@ -6,8 +6,23 @@ import {
   QuoteLineKind,
   saveQuoteLines,
 } from '../shared/quoteConfig';
+import {
+  defaultTaConfig,
+  loadTaConfig,
+  normalizeTaConfig,
+  saveTaConfig,
+  TaConfig,
+} from '../shared/taConfig';
+import {
+  DEFAULT_TRM_SUPLEMENTO,
+  loadTrmSuplemento,
+  normalizeTrmSuplemento,
+  saveTrmSuplemento,
+} from '../shared/trm';
 
 let lines: QuoteLine[] = [];
+let taConfig: TaConfig = defaultTaConfig();
+let trmSuplemento = DEFAULT_TRM_SUPLEMENTO;
 
 function setupTabs(): void {
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -122,6 +137,53 @@ function bindReset(): void {
   });
 }
 
+function fillTaForm(): void {
+  const rt = document.getElementById('ta-nacional-rt') as HTMLInputElement | null;
+  const ow = document.getElementById('ta-nacional-ow') as HTMLInputElement | null;
+  const intl = document.getElementById('ta-internacional-usd') as HTMLInputElement | null;
+  if (rt) rt.value = String(taConfig.nacionalRoundTripCop);
+  if (ow) ow.value = String(taConfig.nacionalOneWayCop);
+  if (intl) intl.value = String(taConfig.internacionalUsd);
+}
+
+function readTaForm(): TaConfig {
+  const rt = document.getElementById('ta-nacional-rt') as HTMLInputElement | null;
+  const ow = document.getElementById('ta-nacional-ow') as HTMLInputElement | null;
+  const intl = document.getElementById('ta-internacional-usd') as HTMLInputElement | null;
+  return normalizeTaConfig({
+    nacionalRoundTripCop: Number(rt?.value || 0),
+    nacionalOneWayCop: Number(ow?.value || 0),
+    internacionalUsd: Number(intl?.value || 0),
+  });
+}
+
+function fillTrmSuplementoForm(): void {
+  const el = document.getElementById('trm-suplemento') as HTMLInputElement | null;
+  if (el) el.value = String(trmSuplemento);
+}
+
+function bindTaForm(): void {
+  const persistTa = () => {
+    taConfig = readTaForm();
+    void saveTaConfig(taConfig);
+  };
+  for (const id of ['ta-nacional-rt', 'ta-nacional-ow', 'ta-internacional-usd']) {
+    document.getElementById(id)?.addEventListener('change', persistTa);
+    document.getElementById(id)?.addEventListener('blur', persistTa);
+  }
+}
+
+function bindTrmSuplementoForm(): void {
+  const persistSup = () => {
+    const el = document.getElementById('trm-suplemento') as HTMLInputElement | null;
+    trmSuplemento = normalizeTrmSuplemento(Number(el?.value || 0));
+    void saveTrmSuplemento(trmSuplemento);
+  };
+  const el = document.getElementById('trm-suplemento');
+  el?.addEventListener('change', persistSup);
+  el?.addEventListener('blur', persistSup);
+}
+
 async function loadChangelog(): Promise<void> {
   const body = document.getElementById('changelog-body');
   if (!body) return;
@@ -138,6 +200,12 @@ async function loadChangelog(): Promise<void> {
 async function init(): Promise<void> {
   setupTabs();
   lines = await loadQuoteLines();
+  taConfig = await loadTaConfig();
+  trmSuplemento = await loadTrmSuplemento();
+  fillTaForm();
+  fillTrmSuplementoForm();
+  bindTaForm();
+  bindTrmSuplementoForm();
   renderLists();
   bindListEvents();
   bindAddForms();

@@ -7,7 +7,12 @@
     "dev": "vite build --watch",
     "build": "tsc && vite build && vite build --config vite.content.config.ts",
     "scrape:login": "tsx scraper/run.ts login",
-    "scrape:capture": "tsx scraper/run.ts capture"
+    "scrape:capture": "tsx scraper/run.ts capture",
+    "scrape:avianca": "tsx scraper/run.ts avianca",
+    "scrape:avianca:analyze": "tsx scraper/analyzeAviancaFixture.ts",
+    "scrape:avianca:trip": "tsx scraper/captureAviancaTrip.ts",
+    "scrape:wingo": "tsx scraper/captureWingo.ts",
+    "scrape:wingo:analyze": "tsx scraper/analyzeWingoFixture.ts"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.269",

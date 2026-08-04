@@ -1,9 +1,10 @@
 import { RoomOccupancy, SearchContext } from '../../core/types';
 
-export type SearchFormType = 'hotel' | 'transfer';
+export type SearchFormType = 'hotel' | 'transfer' | 'activity' | 'insurance';
 
 /**
- * Reads and writes BookingMotor search forms (`#search_hotel`, `#search_transfer`).
+ * Reads and writes BookingMotor search forms (`#search_hotel`, `#search_transfer`,
+ * `#search_activity`, `#search_insurance`).
  *
  * The class is pure DOM logic: it does not touch storage nor attach listeners.
  * A form is only usable when it's actually rendered (visible tab), which is what
@@ -13,6 +14,8 @@ export class BookingMotorSearchFormSync {
   private static readonly FORM_SELECTORS: Record<SearchFormType, string> = {
     hotel: '#search_hotel, form[name="search_hotel"]',
     transfer: '#search_transfer, form[name="search_transfer"]',
+    activity: '#search_activity, form[name="search_activity"]',
+    insurance: '#search_insurance, form[name="search_insurance"]',
   };
 
   getForm(doc: Document, type: SearchFormType): HTMLFormElement | null {
@@ -21,7 +24,7 @@ export class BookingMotorSearchFormSync {
 
   /** Returns the form that is currently rendered on screen (active tab), if any. */
   getVisibleForm(doc: Document): { type: SearchFormType; form: HTMLFormElement } | null {
-    for (const type of ['hotel', 'transfer'] as SearchFormType[]) {
+    for (const type of ['hotel', 'transfer', 'activity', 'insurance'] as SearchFormType[]) {
       const form = this.getForm(doc, type);
       if (form && this.isVisible(form)) return { type, form };
     }
@@ -39,22 +42,32 @@ export class BookingMotorSearchFormSync {
   // -------------------------------------------------------------------------
 
   capture(form: HTMLFormElement, type: SearchFormType): SearchContext {
-    return type === 'hotel' ? this.captureHotel(form) : this.captureTransfer(form);
+    if (type === 'hotel') return this.captureHotel(form);
+    if (type === 'transfer') return this.captureTransfer(form);
+    if (type === 'activity') return this.captureActivity(form);
+    return this.captureInsurance(form);
   }
 
   private captureHotel(form: HTMLFormElement): SearchContext {
     const rooms: RoomOccupancy[] = [];
+    // Prefer the rooms selector — on results pages "#new-search" is display:none,
+    // so visibility checks wrongly drop room 2+ and only keep habitación 1.
+    const roomsSel = this.select(form, 'searchhotel[rooms]');
+    const declaredRooms = roomsSel ? Math.max(1, this.num(roomsSel.value, 1)) : null;
     let roomIndex = 0;
 
-    // Iterate room blocks while an adults select exists for the index.
     while (true) {
       const adultsSel = this.select(form, `searchhotel[listrooms][${roomIndex}][adults]`);
       if (!adultsSel) break;
 
-      const roomBlock = form.querySelector<HTMLElement>(`[id="room[${roomIndex}]"]`);
-      // Only count rooms that are actually active (visible or explicitly the first one).
-      const roomActive = roomIndex === 0 || (roomBlock ? this.isVisible(roomBlock) : true);
-      if (!roomActive) break;
+      if (declaredRooms !== null) {
+        if (roomIndex >= declaredRooms) break;
+      } else {
+        const roomBlock = form.querySelector<HTMLElement>(`[id="room[${roomIndex}]"]`);
+        // Template slots use inline display:none on the room block itself.
+        // Do NOT use isVisible() — the parent panel may be collapsed.
+        if (roomBlock && this.isSelfHidden(roomBlock)) break;
+      }
 
       const adults = this.num(adultsSel.value, 1);
       const childrenSel = this.select(form, `searchhotel[listrooms][${roomIndex}][children]`);
@@ -81,6 +94,14 @@ export class BookingMotorSearchFormSync {
     });
   }
 
+  /** True when the element itself is explicitly hidden (not via a collapsed ancestor). */
+  private isSelfHidden(el: HTMLElement): boolean {
+    if (el.hidden) return true;
+    const inline = el.getAttribute('style') || '';
+    if (/display\s*:\s*none/i.test(inline)) return true;
+    return false;
+  }
+
   private captureTransfer(form: HTMLFormElement): SearchContext {
     const adults = this.num(this.value(form, 'searchtransfer[adults]') ?? '0', 0);
     const children = this.num(this.value(form, 'searchtransfer[children]') ?? '0', 0);
@@ -99,6 +120,38 @@ export class BookingMotorSearchFormSync {
       // "Hasta" (destination hotel) is the most useful hint for the next search.
       destinationText: this.value(form, 'searchtransfer[to]') || this.value(form, 'searchtransfer[from]'),
       rooms: [room],
+    });
+  }
+
+  private captureActivity(form: HTMLFormElement): SearchContext {
+    const adults = this.num(this.value(form, 'searchactivity[adults]') ?? '0', 0);
+    const children = this.num(this.value(form, 'searchactivity[children]') ?? '0', 0);
+    const childrenAges: number[] = [];
+    for (let a = 0; a < children; a++) {
+      const ageSel = this.select(form, `searchactivity[childrenages][${a}][age]`);
+      if (ageSel) childrenAges.push(this.num(ageSel.value, 0));
+    }
+
+    return this.buildContext('activity', {
+      checkIn: this.value(form, 'searchactivity[checkin]'),
+      checkOut: this.value(form, 'searchactivity[checkout]'),
+      nationality: this.value(form, 'searchactivity[nationality]'),
+      destinationText: this.value(form, 'searchactivity[destiny]'),
+      rooms: [{ adults, children, childrenAges }],
+    });
+  }
+
+  private captureInsurance(form: HTMLFormElement): SearchContext {
+    const passengers = this.num(this.value(form, 'searchinsurance[passengers]') ?? '0', 0);
+    // Insurance uses ages, not adult/child split — treat all as adults for sync.
+    return this.buildContext('insurance', {
+      checkIn: this.value(form, 'searchinsurance[checkin]'),
+      checkOut: this.value(form, 'searchinsurance[checkout]'),
+      nationality: this.value(form, 'searchinsurance[nationality]'),
+      destinationText:
+        this.value(form, 'searchinsurance[destiny_name]') ||
+        this.value(form, 'searchinsurance[origin_name]'),
+      rooms: [{ adults: passengers, children: 0, childrenAges: [] }],
     });
   }
 
@@ -134,7 +187,10 @@ export class BookingMotorSearchFormSync {
    * Destination text/IDs are intentionally never written (see class docs).
    */
   apply(form: HTMLFormElement, type: SearchFormType, ctx: SearchContext): boolean {
-    return type === 'hotel' ? this.applyHotel(form, ctx) : this.applyTransfer(form, ctx);
+    if (type === 'hotel') return this.applyHotel(form, ctx);
+    if (type === 'transfer') return this.applyTransfer(form, ctx);
+    if (type === 'activity') return this.applyActivity(form, ctx);
+    return this.applyInsurance(form, ctx);
   }
 
   private applyTransfer(form: HTMLFormElement, ctx: SearchContext): boolean {
@@ -171,6 +227,53 @@ export class BookingMotorSearchFormSync {
       changed = this.setValueIfOption(form, 'searchtransfer[nationality]', ctx.nationality) || changed;
     }
 
+    return changed;
+  }
+
+  private applyActivity(form: HTMLFormElement, ctx: SearchContext): boolean {
+    let changed = false;
+    if (ctx.checkIn) {
+      changed = this.setValue(form, 'searchactivity[checkin]', ctx.checkIn) || changed;
+    }
+    if (ctx.checkOut) {
+      changed = this.setValue(form, 'searchactivity[checkout]', ctx.checkOut) || changed;
+    }
+    if (ctx.totalAdults > 0) {
+      changed = this.setSelectClamped(form, 'searchactivity[adults]', ctx.totalAdults) || changed;
+    }
+    if (ctx.totalChildren > 0) {
+      changed = this.setSelectClamped(form, 'searchactivity[children]', ctx.totalChildren) || changed;
+      const childrenSel = this.select(form, 'searchactivity[children]');
+      const effectiveChildren = childrenSel ? this.num(childrenSel.value, 0) : 0;
+      for (let a = 0; a < effectiveChildren; a++) {
+        const age = ctx.childrenAges[a];
+        if (age === undefined) continue;
+        changed =
+          this.setSelectClamped(form, `searchactivity[childrenages][${a}][age]`, age) || changed;
+      }
+    }
+    if (ctx.nationality) {
+      changed = this.setValueIfOption(form, 'searchactivity[nationality]', ctx.nationality) || changed;
+    }
+    return changed;
+  }
+
+  private applyInsurance(form: HTMLFormElement, ctx: SearchContext): boolean {
+    let changed = false;
+    if (ctx.checkIn) {
+      changed = this.setValue(form, 'searchinsurance[checkin]', ctx.checkIn) || changed;
+    }
+    if (ctx.checkOut) {
+      changed = this.setValue(form, 'searchinsurance[checkout]', ctx.checkOut) || changed;
+    }
+    const pax = ctx.totalAdults + ctx.totalChildren;
+    if (pax > 0) {
+      changed = this.setSelectClamped(form, 'searchinsurance[passengers]', pax) || changed;
+    }
+    if (ctx.nationality) {
+      changed =
+        this.setValueIfOption(form, 'searchinsurance[nationality]', ctx.nationality) || changed;
+    }
     return changed;
   }
 

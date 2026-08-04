@@ -30,13 +30,6 @@ export function defaultQuoteLines(): QuoteLine[] {
     { id: 'inc_assist', kind: 'include', emoji: '🚑', text: 'Asistencias médicas', enabled: true },
 
     // PLAN NO INCLUYE
-    {
-      id: 'exc_bag',
-      kind: 'exclude',
-      emoji: '💼',
-      text: 'Equipaje cabina y/o bodega $120.000 aprox por trayecto por persona',
-      enabled: true,
-    },
     { id: 'exc_other', kind: 'exclude', emoji: '❌', text: 'Gastos no especificados en el programa', enabled: true },
     { id: 'exc_extra', kind: 'exclude', emoji: '🚫', text: 'Excursiones adicionales', enabled: true },
     {

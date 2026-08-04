@@ -164,9 +164,31 @@ export class XNetFlightReader {
       price,
       currency,
       priceBreakdown,
+      baggageIncluded: readIncludedBaggage(box),
       bookingUrl: typeof location !== 'undefined' ? location.href : undefined,
     };
   }
+}
+
+function readIncludedBaggage(root: Element): string[] {
+  const text = (root as HTMLElement).innerText || root.textContent || '';
+  const values: string[] = [];
+  const patterns = [
+    /\b(?:1\s+)?artículo personal(?:\s*\([^)\n]+\))?/gi,
+    /\b(?:1\s+)?equipaje de mano(?:\s*\([^)\n]+\))?/gi,
+    /\b(?:1\s+)?equipaje de cabina(?:\s*\([^)\n]+\))?/gi,
+    /\b(?:1\s+)?equipaje de bodega(?:\s*\([^)\n]+\))?/gi,
+    /\b(?:1\s+)?maleta de bodega(?:\s*\([^)\n]+\))?/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const value = match[0].replace(/\s+/g, ' ').trim();
+      if (value && !values.some((v) => v.toLowerCase() === value.toLowerCase())) {
+        values.push(value);
+      }
+    }
+  }
+  return values;
 }
 
 function getActiveRateRoot(doc: Document): HTMLElement | null {

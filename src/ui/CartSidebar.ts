@@ -1,7 +1,9 @@
 import {
+  ActivityCartItem,
   CartItem,
   FlightCartItem,
   HotelCartItem,
+  InsuranceCartItem,
   SearchContext,
   TransferCartItem,
 } from '../engine/core/types';
@@ -13,7 +15,64 @@ import {
   QuoteLine,
   saveQuoteLines,
 } from '../shared/quoteConfig';
+import {
+  HistoryEntry,
+  commitQuoteNumber,
+  formatQuoteRef,
+  loadAdvisorName,
+  loadClientName,
+  loadHistory,
+  loadIncludeUsdEquiv,
+  loadPendingQuoteNumber,
+  peekNextQuoteNumber,
+  saveAdvisorName,
+  saveClientName,
+  saveIncludeUsdEquiv,
+  savePendingQuoteNumber,
+  upsertHistory,
+} from '../shared/quoteHistory';
+import {
+  DEFAULT_TRM_SUPLEMENTO,
+  DisplayCurrency,
+  copToUsd,
+  effectiveTrm,
+  loadDisplayCurrency,
+  loadTrm,
+  loadTrmSuplemento,
+  normalizeDisplayCurrency,
+  normalizeTrmSuplemento,
+  saveDisplayCurrency,
+  saveTrm,
+  todayIso,
+  TRM_KEY,
+  TRM_REFERENCE_PAGE,
+  TRM_SUPLEMENTO_KEY,
+  TrmState,
+  usdToCop,
+} from '../shared/trm';
+import { appendAppLog } from '../shared/appLog';
+import {
+  loadHotelsAsOptions,
+  saveHotelsAsOptions,
+} from '../shared/quoteOptions';
 import { buildWhatsAppQuote } from './QuoteBuilder';
+import {
+  defaultTaConfig,
+  defaultTaSelection,
+  loadTaConfig,
+  loadTaSelection,
+  normalizeTaConfig,
+  normalizeTaSelection,
+  resolveTaUnitCop,
+  saveTaSelection,
+  suggestTaType,
+  TA_CONFIG_KEY,
+  TA_SELECTION_KEY,
+  TaConfig,
+  TaSelection,
+  TaType,
+  taTypeLabel,
+} from '../shared/taConfig';
 
 const STORAGE_KEY = 'tce_cart_items';
 const SEARCH_KEY = 'tce_last_search';
@@ -48,9 +107,27 @@ export class CartSidebar {
   private searchContext: SearchContext | null = null;
   private fees: Record<string, number> = {};
   private quoteLines: QuoteLine[] = defaultQuoteLines();
-  private quoteOpen = false;
   private quoteCopyStatus: 'idle' | 'ok' | 'err' = 'idle';
+  private panelTab: 'items' | 'total' | 'whatsapp' | 'history' = 'items';
+  /** Item ids currently expanded in the Productos list (default = collapsed). */
+  private expandedIds = new Set<string>();
+  /** Wider panel for reading WhatsApp / totals comfortably. */
+  private panelWide = false;
   private isOpen = false;
+  private advisorName = '';
+  private clientName = '';
+  private includeUsdEquiv = false;
+  private hotelsAsOptions = false;
+  /** Unify cart prices/totals to one currency (TRM converts the other). */
+  private displayCurrency: DisplayCurrency = 'COP';
+  private trmRate = 0;
+  private trmSuplemento = DEFAULT_TRM_SUPLEMENTO;
+  private history: HistoryEntry[] = [];
+  private pendingQuoteNumber: number | null = null;
+  private taConfig: TaConfig = defaultTaConfig();
+  private taSelection: TaSelection = defaultTaSelection();
+  /** While typing TRM / fees / TA, skip full re-renders from storage echoes. */
+  private suppressNumberFieldRerender = false;
 
   constructor() {
     const existing = document.getElementById('tce-cart-sidebar-host');
@@ -66,11 +143,124 @@ export class CartSidebar {
     this.injectStyles();
     this.render();
     this.loadFromStorage();
+    this.watchCartStorage();
     this.loadSearchContext();
     this.watchSearchContext();
     this.loadFees();
     void this.loadQuoteLinesFromStorage();
     this.watchQuoteLines();
+    void this.bootstrapMeta();
+  }
+
+  private async bootstrapMeta(): Promise<void> {
+    this.advisorName = await loadAdvisorName();
+    this.clientName = await loadClientName();
+    this.includeUsdEquiv = await loadIncludeUsdEquiv();
+    this.hotelsAsOptions = await loadHotelsAsOptions();
+    this.pendingQuoteNumber = await loadPendingQuoteNumber();
+    this.displayCurrency = await loadDisplayCurrency();
+    const trm = await loadTrm();
+    if (trm) this.trmRate = trm.rate;
+    this.trmSuplemento = await loadTrmSuplemento();
+    this.taConfig = await loadTaConfig();
+    this.taSelection = await loadTaSelection();
+    this.history = await loadHistory();
+    this.watchTrmStorage();
+    this.watchTaStorage();
+    this.render();
+    // Ask background to pull TRM from dolar-colombia.com (non-blocking).
+    try {
+      chrome.runtime.sendMessage({ type: 'TCE_REFRESH_TRM', force: false }, () => undefined);
+    } catch {
+      // ignore
+    }
+  }
+
+  private getEffectiveTrm(): number {
+    return effectiveTrm(this.trmRate, this.trmSuplemento);
+  }
+
+  private watchTrmStorage(): void {
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        let dirty = false;
+        if (changes[TRM_KEY]) {
+          const next = changes[TRM_KEY].newValue as TrmState | undefined;
+          if (next && typeof next.rate === 'number' && next.rate > 0) {
+            this.trmRate = next.rate;
+            if (this.taSelection.type === 'internacional') {
+              this.taSelection = {
+                ...this.taSelection,
+                unitCop: resolveTaUnitCop(this.taConfig, 'internacional', this.getEffectiveTrm()),
+              };
+              void saveTaSelection(this.taSelection);
+            }
+            dirty = true;
+          }
+        }
+        if (changes[TRM_SUPLEMENTO_KEY]) {
+          this.trmSuplemento = normalizeTrmSuplemento(changes[TRM_SUPLEMENTO_KEY].newValue);
+          if (this.taSelection.type === 'internacional') {
+            this.taSelection = {
+              ...this.taSelection,
+              unitCop: resolveTaUnitCop(this.taConfig, 'internacional', this.getEffectiveTrm()),
+            };
+            void saveTaSelection(this.taSelection);
+          }
+          dirty = true;
+        }
+        if (dirty && !this.suppressNumberFieldRerender) this.render();
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  private watchTaStorage(): void {
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        let dirty = false;
+        if (changes[TA_CONFIG_KEY]) {
+          this.taConfig = normalizeTaConfig(changes[TA_CONFIG_KEY].newValue);
+          dirty = true;
+        }
+        if (changes[TA_SELECTION_KEY]) {
+          this.taSelection = normalizeTaSelection(changes[TA_SELECTION_KEY].newValue);
+          dirty = true;
+        }
+        if (dirty && !this.suppressNumberFieldRerender) this.render();
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  private async refreshTrmFromApi(): Promise<void> {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'TCE_REFRESH_TRM', force: true });
+      if (res?.trm?.rate) {
+        this.trmRate = res.trm.rate;
+        this.render();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  setAdvisorName(name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === this.advisorName) return;
+    this.advisorName = trimmed;
+    void saveAdvisorName(trimmed);
+    this.render();
+  }
+
+  setTrm(rate: number): void {
+    if (!(rate > 0) || rate === this.trmRate) return;
+    this.trmRate = rate;
+    this.render();
   }
 
   private defaultFees(): Record<string, number> {
@@ -81,8 +271,10 @@ export class CartSidebar {
 
   async addItem(item: CartItem): Promise<void> {
     this.items.push(item);
+    this.expandedIds.add(item.id);
     await this.saveToStorage();
     this.isOpen = true;
+    this.panelTab = 'items';
     this.render();
     this.highlightLatest();
   }
@@ -106,18 +298,106 @@ export class CartSidebar {
 
   async removeItem(id: string): Promise<void> {
     this.items = this.items.filter((i) => i.id !== id);
+    this.expandedIds.delete(id);
     await this.saveToStorage();
     this.render();
   }
 
   async clearCart(): Promise<void> {
+    if (this.items.length > 0) {
+      await this.archiveCurrentCart('Vaciar carrito');
+    }
     this.items = [];
+    this.panelTab = 'items';
+    this.expandedIds.clear();
+    this.searchContext = null;
+    this.fees = this.defaultFees();
+    this.pendingQuoteNumber = null;
+    this.clientName = '';
+    this.applyTaType('nacional_rt', true);
     await this.saveToStorage();
+    await this.clearSearchContextStorage();
+    await this.saveFees();
+    await savePendingQuoteNumber(null);
+    await saveClientName('');
     this.render();
+  }
+
+  /** Stable quote # for this cart session (survives page navigation). */
+  private async ensurePendingQuoteNumber(): Promise<number> {
+    if (this.pendingQuoteNumber !== null) return this.pendingQuoteNumber;
+    const stored = await loadPendingQuoteNumber();
+    if (stored !== null) {
+      this.pendingQuoteNumber = stored;
+      return stored;
+    }
+    const peek = await peekNextQuoteNumber();
+    this.pendingQuoteNumber = peek;
+    await savePendingQuoteNumber(peek);
+    return peek;
+  }
+
+  private async archiveCurrentCart(reason: string): Promise<void> {
+    if (this.items.length === 0) return;
+    // Avoid duplicating the same session after "Copiar WhatsApp" then "Vaciar".
+    if (
+      reason === 'Vaciar carrito' &&
+      this.pendingQuoteNumber !== null &&
+      this.history[0]?.quoteNumber === this.pendingQuoteNumber
+    ) {
+      return;
+    }
+
+    const quoteNumber = await this.ensurePendingQuoteNumber();
+    await commitQuoteNumber(quoteNumber);
+    const subtotals = this.getTotalsByCurrency();
+    const primaryCurrency = this.getPrimaryCurrency(subtotals) || 'COP';
+    const itemsTotal = subtotals.get(primaryCurrency) || 0;
+    const entry: HistoryEntry = {
+      id: `hist_${quoteNumber}_${Date.now()}`,
+      quoteNumber,
+      advisorName: this.advisorName,
+      clientName: this.clientName.trim() || undefined,
+      destination: this.searchContext?.destinationText,
+      searchContext: this.searchContext,
+      items: [...this.items],
+      fees: { ...this.fees },
+      taTotal: this.getTaTotal() || undefined,
+      trm: this.getEffectiveTrm() || undefined,
+      grandTotal: itemsTotal + this.getFeesTotal(),
+      primaryCurrency,
+      createdAt: Date.now(),
+    };
+    await upsertHistory(entry);
+    this.history = await loadHistory();
+    void appendAppLog('info', `Historial: ${reason} ${formatQuoteRef(quoteNumber)}`);
+  }
+
+  private async clearSearchContextStorage(): Promise<void> {
+    try {
+      await chrome.storage.local.remove(SEARCH_KEY);
+    } catch {
+      // storage unavailable
+    }
+  }
+
+  private toggleItemExpand(id: string): void {
+    if (this.expandedIds.has(id)) this.expandedIds.delete(id);
+    else this.expandedIds.add(id);
+    this.render();
+  }
+
+  private isItemExpanded(id: string): boolean {
+    return this.expandedIds.has(id);
   }
 
   toggle(): void {
     this.isOpen = !this.isOpen;
+    this.render();
+  }
+
+  private togglePanelWidth(): void {
+    this.panelWide = !this.panelWide;
     this.render();
   }
 
@@ -126,13 +406,90 @@ export class CartSidebar {
       const result = await chrome.storage.local.get(STORAGE_KEY);
       const stored = result[STORAGE_KEY];
       if (Array.isArray(stored)) {
-        this.items = stored.map((item) =>
-          item.type ? item : { ...item, type: 'hotel' as const }
-        );
+        this.applyItemsFromStorage(stored);
         this.render();
       }
     } catch {
       // storage unavailable (e.g. test harness)
+    }
+  }
+
+  private applyItemsFromStorage(stored: unknown[]): void {
+    this.items = stored.map((item) => {
+      const row = item as Partial<CartItem> & Record<string, unknown>;
+      if (row && typeof row === 'object' && row.type) return row as CartItem;
+      return { ...(row as object), type: 'hotel' as const } as CartItem;
+    });
+    const ids = new Set(this.items.map((i) => i.id));
+    for (const id of [...this.expandedIds]) {
+      if (!ids.has(id)) this.expandedIds.delete(id);
+    }
+    if (this.items.length === 0) this.panelTab = 'items';
+  }
+
+  private applyFeesFromStorage(stored: Record<string, number> | undefined): void {
+    const migrated = this.defaultFees();
+    if (!stored) {
+      this.fees = migrated;
+      return;
+    }
+    if (typeof stored[MAYOR_VALOR_ID] === 'number') {
+      migrated[MAYOR_VALOR_ID] = Math.max(0, stored[MAYOR_VALOR_ID]);
+    } else if (typeof stored.fee_ejemplo_1 === 'number') {
+      migrated[MAYOR_VALOR_ID] = Math.max(0, stored.fee_ejemplo_1);
+    }
+    if (typeof stored[REDONDEO_ID] === 'number') {
+      migrated[REDONDEO_ID] = Math.max(0, stored[REDONDEO_ID]);
+    }
+    this.fees = migrated;
+  }
+
+  /**
+   * Keeps one shared cart across all provider tabs (BookingMotor, Avianca,
+   * Wingo, etc.): when another page writes `tce_cart_items` / fees, refresh UI.
+   */
+  private watchCartStorage(): void {
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+
+        let dirty = false;
+
+        if (changes[STORAGE_KEY]) {
+          const next = changes[STORAGE_KEY].newValue;
+          if (Array.isArray(next)) {
+            this.applyItemsFromStorage(next);
+          } else {
+            this.applyItemsFromStorage([]);
+          }
+          // Own saveToStorage() while editing item mayor valor / redondeo:
+          // avoid full re-render (focus loss); only refresh grand totals.
+          if (this.suppressNumberFieldRerender) {
+            const totalsEl = this.shadow.querySelector('.tce-totals');
+            if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+          } else {
+            dirty = true;
+          }
+        }
+
+        if (changes[FEES_KEY]) {
+          this.applyFeesFromStorage(
+            changes[FEES_KEY].newValue as Record<string, number> | undefined
+          );
+          // Our own saveFees() echoes here. A full render recreates the input and
+          // steals focus after every digit — only refresh totals while typing.
+          if (this.suppressNumberFieldRerender) {
+            const totalsEl = this.shadow.querySelector('.tce-totals');
+            if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+          } else {
+            dirty = true;
+          }
+        }
+
+        if (dirty) this.render();
+      });
+    } catch {
+      // storage.onChanged unavailable (e.g. test harness)
     }
   }
 
@@ -192,17 +549,7 @@ export class CartSidebar {
       const stored = result[FEES_KEY] as Record<string, number> | undefined;
       if (!stored) return;
 
-      const migrated = this.defaultFees();
-      if (typeof stored[MAYOR_VALOR_ID] === 'number') {
-        migrated[MAYOR_VALOR_ID] = Math.max(0, stored[MAYOR_VALOR_ID]);
-      } else if (typeof stored.fee_ejemplo_1 === 'number') {
-        // Legacy: rounding used to overwrite mayor valor — keep it there as advisor amount.
-        migrated[MAYOR_VALOR_ID] = Math.max(0, stored.fee_ejemplo_1);
-      }
-      if (typeof stored[REDONDEO_ID] === 'number') {
-        migrated[REDONDEO_ID] = Math.max(0, stored[REDONDEO_ID]);
-      }
-      this.fees = migrated;
+      this.applyFeesFromStorage(stored);
 
       const hasLegacy = LEGACY_FEE_IDS.some((id) => id in stored);
       if (hasLegacy || !(MAYOR_VALOR_ID in stored) || !(REDONDEO_ID in stored)) {
@@ -223,12 +570,63 @@ export class CartSidebar {
   }
 
   private getFeesTotal(): number {
-    return FEE_DEFINITIONS.reduce((sum, def) => sum + (this.fees[def.id] || 0), 0);
+    const base = FEE_DEFINITIONS.reduce((sum, def) => sum + (this.fees[def.id] || 0), 0);
+    return this.copAmountToDisplay(base + this.getTaTotal());
   }
 
-  /** Currency the fees are applied to: the one with the largest item subtotal. */
+  /** Passengers that pay TA (adults + children + infants). */
+  private getTaPaxCount(): number {
+    const candidates: number[] = [];
+    for (const item of this.items) {
+      if (item.type === 'flight') {
+        candidates.push(item.adults + item.children + item.infants);
+      } else if (item.type === 'hotel') {
+        candidates.push(
+          item.occupancy.reduce((sum, room) => sum + room.adults + room.children, 0)
+        );
+      } else if (item.type === 'transfer' || item.type === 'activity') {
+        candidates.push(item.adults + item.children);
+      } else if (item.type === 'insurance') {
+        candidates.push(item.passengers);
+      }
+    }
+    if (this.searchContext) {
+      candidates.push(
+        this.searchContext.totalAdults + this.searchContext.totalChildren
+      );
+    }
+    const max = Math.max(0, ...candidates);
+    return max > 0 ? max : Math.max(1, this.items.length > 0 ? 1 : 0);
+  }
+
+  private getTaTotal(): number {
+    if (!(this.taSelection.unitCop > 0)) return 0;
+    return Math.round(this.taSelection.unitCop * this.getTaPaxCount());
+  }
+
+  private applyTaType(type: TaType, persist = true): void {
+    this.taSelection = {
+      type,
+      unitCop: resolveTaUnitCop(this.taConfig, type, this.getEffectiveTrm()),
+    };
+    if (persist) void saveTaSelection(this.taSelection);
+  }
+
+  private syncTaFromFlightIfPresent(): void {
+    const flight = this.items.find((i): i is FlightCartItem => i.type === 'flight');
+    if (!flight) return;
+    const type = suggestTaType({
+      routeType: flight.routeType,
+      originCode: flight.origin.code,
+      destinationCode: flight.destination.code,
+    });
+    this.applyTaType(type, true);
+  }
+
+  /** Currency the fees are applied to — always the active display currency. */
   private getPrimaryCurrency(subtotals: Map<string, number>): string {
-    let best = '';
+    if (subtotals.has(this.displayCurrency)) return this.displayCurrency;
+    let best: string = this.displayCurrency;
     let bestValue = -Infinity;
     for (const [currency, value] of subtotals) {
       if (value > bestValue) {
@@ -236,7 +634,51 @@ export class CartSidebar {
         best = currency;
       }
     }
-    return best;
+    return best || this.displayCurrency;
+  }
+
+  private canUseDisplayCurrency(target: DisplayCurrency): boolean {
+    if (target === 'COP') return true;
+    return this.getEffectiveTrm() > 0;
+  }
+
+  /** Convert an amount from a native currency into the active display currency. */
+  private toDisplay(amount: number, fromCurrency: string): { currency: string; price: number } {
+    const target = this.displayCurrency;
+    const from = (fromCurrency || 'COP').toUpperCase();
+    if (from === target) return { currency: target, price: amount };
+
+    const eff = this.getEffectiveTrm();
+    if (!(eff > 0)) return { currency: target, price: amount };
+
+    if (from === 'USD' && target === 'COP') {
+      return { currency: 'COP', price: usdToCop(amount, eff) };
+    }
+    if (from === 'COP' && target === 'USD') {
+      return { currency: 'USD', price: copToUsd(amount, eff) };
+    }
+    // No exchange source for other currencies (e.g. CLP): keep the native
+    // currency and amount rather than silently relabeling it as COP/USD.
+    return { currency: from, price: amount };
+  }
+
+  /** Fees / item adjustments are stored in COP; convert for display UI & totals. */
+  private copAmountToDisplay(cop: number): number {
+    if (this.displayCurrency === 'COP') return cop;
+    const eff = this.getEffectiveTrm();
+    if (!(eff > 0)) return cop;
+    return copToUsd(cop, eff);
+  }
+
+  private displayAmountToCop(amount: number): number {
+    if (this.displayCurrency === 'COP') return amount;
+    const eff = this.getEffectiveTrm();
+    if (!(eff > 0)) return amount;
+    return usdToCop(amount, eff);
+  }
+
+  private roundUnit(): number {
+    return this.displayCurrency === 'USD' ? 10 : 10_000;
   }
 
   /** Nights between two DD-MM-YYYY dates, or 0 if not computable. */
@@ -254,10 +696,31 @@ export class CartSidebar {
     return diff > 0 ? diff : 0;
   }
 
+  private resolveOriginLabel(): string | null {
+    const flight = this.items.find((i): i is FlightCartItem => i.type === 'flight');
+    if (flight) {
+      const fromFlight = (flight.origin.name || flight.origin.code || '').trim();
+      if (fromFlight) return fromFlight;
+    }
+    const fromCtx = this.searchContext?.originText?.trim();
+    return fromCtx || null;
+  }
+
   private formatSearchSummary(ctx: SearchContext): string {
     const parts: string[] = [];
 
-    if (ctx.destinationText) parts.push(this.escape(ctx.destinationText));
+    const origin = this.resolveOriginLabel();
+    if (origin) parts.push(`Origen: ${this.escape(origin)}`);
+
+    if (ctx.destinationText) {
+      let dest = ctx.destinationText.trim();
+      // Avoid "Origen: MDE · MDE → CTG" duplication when we already show origin.
+      if (origin && /→|->/.test(dest)) {
+        const right = dest.split(/\s*→\s*|\s*->\s*/).pop()?.trim();
+        if (right) dest = right;
+      }
+      if (dest) parts.push(this.escape(dest));
+    }
 
     if (ctx.checkIn) {
       const dates = ctx.checkOut
@@ -278,13 +741,19 @@ export class CartSidebar {
     if (ctx.totalChildren > 0) {
       pax.push(`${ctx.totalChildren} niño${ctx.totalChildren !== 1 ? 's' : ''}`);
     }
+    const flight = this.items.find((i): i is FlightCartItem => i.type === 'flight');
+    const infants = flight?.infants ?? 0;
+    if (infants > 0) {
+      pax.push(`${infants} bebé${infants !== 1 ? 's' : ''}`);
+    }
     if (pax.length) parts.push(pax.join(', '));
 
     return parts.join(' · ');
   }
 
   private highlightLatest(): void {
-    const card = this.shadow.querySelector('.tce-item:last-child');
+    const cards = this.shadow.querySelectorAll('.tce-item');
+    const card = cards[cards.length - 1];
     if (!card) return;
     card.classList.add('tce-item--new');
     setTimeout(() => card.classList.remove('tce-item--new'), 1200);
@@ -294,12 +763,102 @@ export class CartSidebar {
     return `${currency} ${price.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   }
 
+  private roomCapacityLabel(adults: number, children: number): string {
+    const n = adults + children;
+    if (n <= 1) return 'Sencilla';
+    if (n === 2) return 'Doble';
+    if (n === 3) return 'Triple';
+    if (n === 4) return 'Cuádruple';
+    return `${n} personas`;
+  }
+
+  private formatRoomOccupancy(room: { adults: number; children: number }, index: number): string {
+    const pax: string[] = [];
+    if (room.adults > 0) pax.push(`${room.adults} adulto${room.adults !== 1 ? 's' : ''}`);
+    if (room.children > 0) pax.push(`${room.children} niño${room.children !== 1 ? 's' : ''}`);
+    const capacity = this.roomCapacityLabel(room.adults, room.children);
+    return `Hab ${index + 1}: ${capacity}${pax.length ? ` · ${pax.join(', ')}` : ''}`;
+  }
+
+  /** Per-room breakdown when multi-room; otherwise total adults/children. */
   private formatOccupancy(item: HotelCartItem): string {
+    if (item.occupancy.length > 1) {
+      return item.occupancy.map((room, i) => this.formatRoomOccupancy(room, i)).join(' · ');
+    }
     const adults = item.occupancy.reduce((sum, o) => sum + o.adults, 0);
     const children = item.occupancy.reduce((sum, o) => sum + o.children, 0);
     const parts = [`${adults} adulto${adults !== 1 ? 's' : ''}`];
     if (children > 0) parts.push(`${children} niño${children !== 1 ? 's' : ''}`);
+    if (item.occupancy.length === 1) {
+      const capacity = this.roomCapacityLabel(
+        item.occupancy[0].adults,
+        item.occupancy[0].children
+      );
+      return `${capacity} · ${parts.join(', ')}`;
+    }
     return parts.join(', ');
+  }
+
+  /**
+   * When "Comparar hoteles" is on: each hotel option = shared services + that
+   * hotel + fees (TA / mayor / redondeo globales).
+   */
+  private getHotelCompareOptions(): Array<{
+    index: number;
+    hotel: HotelCartItem;
+    currency: string;
+    optionTotal: number;
+    perPerson: number;
+  }> {
+    const hotels = this.items.filter((i): i is HotelCartItem => i.type === 'hotel');
+    if (!this.hotelsAsOptions || hotels.length === 0) return [];
+
+    const feesTotal = this.getFeesTotal();
+    const shared = this.items
+      .filter((i) => i.type !== 'hotel')
+      .reduce((sum, i) => sum + this.getItemLineTotal(i).price, 0);
+    const pax = Math.max(1, this.getTaPaxCount());
+    const currency = this.displayCurrency;
+
+    return hotels.map((hotel, index) => {
+      const hotelLine = this.getItemLineTotal(hotel).price;
+      const optionTotal = shared + hotelLine + feesTotal;
+      const perPerson =
+        this.displayCurrency === 'USD'
+          ? Math.round((optionTotal / pax) * 100) / 100
+          : Math.round(optionTotal / pax);
+      return { index: index + 1, hotel, currency, optionTotal, perPerson };
+    });
+  }
+
+  private renderHotelCompareBlock(opts?: { compact?: boolean }): string {
+    const options = this.getHotelCompareOptions();
+    if (options.length < 2) return '';
+    const pax = Math.max(1, this.getTaPaxCount());
+    const rows = options
+      .map(
+        (opt) => `
+      <div class="tce-compare-option">
+        <div class="tce-compare-option-title">
+          Opción ${opt.index}: ${this.escape(opt.hotel.hotelName)}
+        </div>
+        <div class="tce-compare-option-row">
+          <span>Por pasajero (${pax} pax)</span>
+          <strong>${this.escape(this.formatPrice(opt.currency, opt.perPerson))}</strong>
+        </div>
+        <div class="tce-compare-option-row">
+          <span>Total</span>
+          <strong>${this.escape(this.formatPrice(opt.currency, opt.optionTotal))}</strong>
+        </div>
+      </div>`
+      )
+      .join('');
+
+    return `
+      <div class="tce-compare-hotels${opts?.compact ? ' tce-compare-hotels--compact' : ''}">
+        <div class="tce-compare-title">Comparar hoteles · ${options.length} opciones</div>
+        ${rows}
+      </div>`;
   }
 
   private getItemPrice(item: CartItem): { currency: string; price: number } {
@@ -309,10 +868,42 @@ export class CartSidebar {
     return { currency: item.currency, price: item.price };
   }
 
+  /** Base price in the active display currency (TRM when converting). */
+  private getItemBasePrice(item: CartItem): { currency: string; price: number } {
+    const native = this.getItemPrice(item);
+    return this.toDisplay(native.price, native.currency);
+  }
+
+  private getItemAdjustments(item: CartItem): { mayorValor: number; redondeo: number } {
+    return {
+      mayorValor: Math.max(0, Number(item.mayorValor) || 0),
+      redondeo: Math.max(0, Number(item.redondeo) || 0),
+    };
+  }
+
+  /** Adjustments in display currency (stored values are COP). */
+  private getItemAdjustmentsDisplay(item: CartItem): { mayorValor: number; redondeo: number } {
+    const adj = this.getItemAdjustments(item);
+    return {
+      mayorValor: this.copAmountToDisplay(adj.mayorValor),
+      redondeo: this.copAmountToDisplay(adj.redondeo),
+    };
+  }
+
+  /** Line total = base (display) + mayor + redondeo (display). */
+  private getItemLineTotal(item: CartItem): { currency: string; price: number } {
+    const base = this.getItemBasePrice(item);
+    const adj = this.getItemAdjustmentsDisplay(item);
+    return {
+      currency: base.currency,
+      price: base.price + adj.mayorValor + adj.redondeo,
+    };
+  }
+
   private getTotalsByCurrency(): Map<string, number> {
     const totals = new Map<string, number>();
     for (const item of this.items) {
-      const { currency, price } = this.getItemPrice(item);
+      const { currency, price } = this.getItemLineTotal(item);
       totals.set(currency, (totals.get(currency) || 0) + price);
     }
     return totals;
@@ -342,11 +933,12 @@ export class CartSidebar {
         writing-mode: vertical-rl;
         text-orientation: mixed;
         box-shadow: -2px 0 12px rgba(0,0,0,0.15);
-        transition: background 0.2s;
+        transition: background 0.2s, right 0.25s ease;
         letter-spacing: 0.5px;
       }
       .tce-tab:hover { background: #1d4ed8; }
       .tce-tab--open { right: 340px; }
+      .tce-tab--open.tce-tab--wide { right: 520px; }
 
       .tce-badge {
         display: inline-block;
@@ -373,25 +965,115 @@ export class CartSidebar {
         flex-direction: column;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         transform: translateX(100%);
-        transition: transform 0.25s ease;
+        transition: transform 0.25s ease, width 0.25s ease;
       }
       .tce-panel--open { transform: translateX(0); }
+      .tce-panel--wide { width: 520px; }
 
       .tce-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 16px 18px;
+        padding: 12px 18px;
         background: #1e40af;
         color: #fff;
         flex-shrink: 0;
+        gap: 8px;
+      }
+      .tce-header-title {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: nowrap;
+        gap: 6px;
+        min-width: 0;
+        overflow: hidden;
       }
       .tce-header h2 {
         margin: 0;
         font-size: 16px;
         font-weight: 700;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
-      .tce-header span { font-size: 13px; opacity: 0.85; }
+      .tce-header span {
+        font-size: 13px;
+        opacity: 0.85;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tce-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .tce-hotel-options-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: rgba(255,255,255,0.14);
+        font-size: 10px;
+        font-weight: 600;
+        color: #fff;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .tce-hotel-options-toggle input {
+        margin: 0;
+        width: 12px;
+        height: 12px;
+        accent-color: #facc15;
+      }
+      .tce-compare-hotels {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: #eff6ff;
+      }
+      .tce-compare-hotels--compact {
+        margin-top: 8px;
+      }
+      .tce-compare-title {
+        font-size: 11px;
+        font-weight: 700;
+        color: #1e40af;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .tce-compare-option {
+        padding: 8px 0;
+        border-top: 1px dashed #bfdbfe;
+      }
+      .tce-compare-option:first-of-type {
+        border-top: none;
+        padding-top: 0;
+      }
+      .tce-compare-option-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 4px;
+      }
+      .tce-compare-option-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12px;
+        color: #334155;
+        line-height: 1.4;
+      }
+      .tce-compare-option-row strong {
+        color: #1e40af;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .tce-width-toggle,
       .tce-close {
         background: rgba(255,255,255,0.15);
         border: none;
@@ -400,10 +1082,205 @@ export class CartSidebar {
         height: 28px;
         border-radius: 6px;
         cursor: pointer;
-        font-size: 16px;
+        font-size: 14px;
         line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
       }
+      .tce-width-toggle:hover,
       .tce-close:hover { background: rgba(255,255,255,0.25); }
+      .tce-width-toggle {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: -1px;
+      }
+
+      .tce-trm-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 14px;
+        background: #fffbeb;
+        border-bottom: 1px solid #fde68a;
+        flex-shrink: 0;
+        font-size: 12px;
+        color: #92400e;
+      }
+      .tce-trm-bar label { font-weight: 700; white-space: nowrap; }
+      .tce-trm-input {
+        width: 88px;
+        border: 1px solid #fbbf24;
+        border-radius: 6px;
+        padding: 4px 6px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #78350f;
+        background: #fff;
+      }
+      .tce-trm-hint {
+        font-size: 10px;
+        color: #a16207;
+        flex: 1 1 100%;
+        min-width: 0;
+        line-height: 1.35;
+      }
+      /* Wide panel: hint stays on the same row as TRM controls. */
+      .tce-panel--wide .tce-trm-hint {
+        flex: 1 1 auto;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tce-trm-refresh {
+        border: 1px solid #fbbf24;
+        background: #fff;
+        color: #92400e;
+        border-radius: 6px;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 4px 6px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .tce-trm-refresh:hover { background: #fef3c7; }
+      .tce-currency-toggle {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #fbbf24;
+        border-radius: 6px;
+        overflow: hidden;
+        flex-shrink: 0;
+        background: #fff;
+      }
+      .tce-currency-btn {
+        border: none;
+        background: transparent;
+        color: #a16207;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 4px 7px;
+        cursor: pointer;
+        font-family: inherit;
+        line-height: 1.2;
+      }
+      .tce-currency-btn + .tce-currency-btn {
+        border-left: 1px solid #fde68a;
+      }
+      .tce-currency-btn--active {
+        background: #fef3c7;
+        color: #78350f;
+      }
+      .tce-currency-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .tce-ta-block {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px dashed #cbd5e1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .tce-ta-type {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+        font-family: inherit;
+      }
+      .tce-ta-unit {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 13px;
+        font-family: inherit;
+      }
+      .tce-ta-summary {
+        font-size: 12px;
+        color: #334155;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .tce-ta-suggest {
+        margin-left: auto;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 3px 8px;
+        font-size: 11px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .tce-ta-hint {
+        font-size: 10px;
+        color: #64748b;
+      }
+      .tce-history-item {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        font-size: 12px;
+        color: #334155;
+        line-height: 1.45;
+      }
+      .tce-history-item strong { color: #1e40af; }
+      .tce-history-meta { color: #64748b; font-size: 11px; margin-top: 4px; }
+      .tce-history-trip {
+        margin-top: 6px;
+        font-size: 12px;
+        color: #1e293b;
+      }
+      .tce-history-trip div { margin-top: 2px; }
+      .tce-history-services {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .tce-history-svc {
+        font-size: 12px;
+        color: #0f172a;
+      }
+      .tce-history-svc-title {
+        font-weight: 700;
+        color: #1e40af;
+      }
+      .tce-history-svc-line {
+        color: #475569;
+        font-size: 11px;
+        margin-top: 1px;
+      }
+      .tce-history-svc-price {
+        margin-top: 2px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .tce-history-fees {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed #cbd5e1;
+        font-size: 11px;
+        color: #475569;
+      }
+      .tce-history-fees div { margin-top: 2px; }
+      .tce-history-total {
+        margin-top: 6px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1e40af;
+      }
 
       .tce-search-summary {
         display: flex;
@@ -427,10 +1304,68 @@ export class CartSidebar {
         line-height: 1.4;
       }
 
+      .tce-client-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 18px;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+        flex-shrink: 0;
+      }
+      .tce-client-row label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        color: #475569;
+        flex-shrink: 0;
+      }
+      .tce-client-input {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 13px;
+        color: #0f172a;
+        background: #fff;
+      }
+      .tce-client-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      }
+
       .tce-body {
         flex: 1;
         overflow-y: auto;
         padding: 12px;
+        min-height: 0;
+      }
+
+      .tce-panel-tabs {
+        display: flex;
+        flex-shrink: 0;
+        background: #fff;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .tce-panel-tab {
+        flex: 1;
+        padding: 10px 6px;
+        border: none;
+        background: transparent;
+        font-size: 11px;
+        font-weight: 700;
+        color: #64748b;
+        cursor: pointer;
+        font-family: inherit;
+        border-bottom: 2px solid transparent;
+      }
+      .tce-panel-tab:hover { color: #1e40af; background: #f8fafc; }
+      .tce-panel-tab--active {
+        color: #1e40af;
+        border-bottom-color: #1e40af;
+        background: #eff6ff;
       }
 
       .tce-empty {
@@ -450,9 +1385,154 @@ export class CartSidebar {
         margin-bottom: 10px;
         transition: border-color 0.3s, box-shadow 0.3s;
       }
+      .tce-item--collapsed {
+        padding: 8px 10px;
+      }
       .tce-item--new {
         border-color: #3b82f6;
         box-shadow: 0 0 0 2px rgba(59,130,246,0.25);
+      }
+
+      .tce-item-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .tce-item-open {
+        flex-shrink: 0;
+        width: 26px;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        background: #eff6ff;
+        color: #1e40af;
+        text-decoration: none;
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .tce-item-open:hover {
+        background: #dbeafe;
+        border-color: #93c5fd;
+      }
+      .tce-item-toggle {
+        flex-shrink: 0;
+        width: 26px;
+        height: 26px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #1e40af;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        font-family: inherit;
+        padding: 0;
+      }
+      .tce-item-toggle:hover {
+        background: #eff6ff;
+        border-color: #93c5fd;
+      }
+      .tce-item-summary {
+        flex: 1;
+        min-width: 0;
+      }
+      .tce-item-summary-type {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #1e40af;
+        margin: 0 0 2px;
+      }
+      .tce-item-summary-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #1e293b;
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tce-item-summary-meta {
+        font-size: 11px;
+        color: #64748b;
+        margin: 2px 0 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tce-item-summary-price {
+        flex-shrink: 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1e40af;
+        white-space: nowrap;
+      }
+      .tce-item-details {
+        margin-top: 8px;
+      }
+      .tce-item-adjust {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px dashed #cbd5e1;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .tce-item-adjust-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .tce-item-adjust-row label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #475569;
+      }
+      .tce-item-adjust-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+      }
+      .tce-item-round-btn {
+        flex-shrink: 0;
+        padding: 1px 5px;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 4px;
+        color: #1e40af;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1.3;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .tce-item-round-btn:hover { background: #dbeafe; }
+      .tce-item-adj-input {
+        width: 110px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 4px 6px;
+        font-size: 12px;
+        font-family: inherit;
+      }
+      .tce-item-adjust-base {
+        font-size: 10px;
+        color: #94a3b8;
+      }
+      .tce-item-line-total {
+        font-size: 12px;
+        color: #1e293b;
+      }
+      .tce-item-line-total strong {
+        color: #1e40af;
       }
 
       .tce-item-type {
@@ -602,6 +1682,11 @@ export class CartSidebar {
         background: #fff;
         flex-shrink: 0;
       }
+      .tce-footer--scroll {
+        border-top: none;
+        padding: 0;
+        background: transparent;
+      }
       .tce-total {
         font-size: 14px;
         font-weight: 700;
@@ -691,31 +1776,15 @@ export class CartSidebar {
       .tce-clear:hover { background: #fef2f2; color: #ef4444; border-color: #fca5a5; }
 
       .tce-quote {
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px dashed #e2e8f0;
-      }
-      .tce-quote-toggle {
-        width: 100%;
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 10px;
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-        color: #1e40af;
-        font-size: 12px;
-        font-weight: 700;
-        cursor: pointer;
-        font-family: inherit;
+        flex-direction: column;
+        gap: 8px;
+        height: 100%;
       }
-      .tce-quote-toggle:hover { background: #dbeafe; }
-      .tce-quote-body { margin-top: 8px; }
       .tce-quote-hint {
         font-size: 11px;
         color: #64748b;
-        margin: 0 0 8px;
+        margin: 0;
         line-height: 1.35;
       }
       .tce-quote-group-title {
@@ -739,7 +1808,7 @@ export class CartSidebar {
       .tce-quote-actions {
         display: flex;
         gap: 6px;
-        margin-top: 8px;
+        flex-shrink: 0;
       }
       .tce-quote-btn {
         flex: 1;
@@ -763,15 +1832,13 @@ export class CartSidebar {
       .tce-quote-status {
         font-size: 11px;
         color: #16a34a;
-        margin-top: 6px;
         min-height: 14px;
       }
       .tce-quote-status--err { color: #dc2626; }
       .tce-quote-preview {
         width: 100%;
-        min-height: 200px;
-        max-height: 280px;
-        margin: 0 0 8px;
+        flex: 1;
+        min-height: 180px;
         padding: 8px;
         border: 1px solid #86efac;
         border-radius: 8px;
@@ -788,17 +1855,30 @@ export class CartSidebar {
         font-size: 11px;
         font-weight: 700;
         color: #15803d;
-        margin: 0 0 4px;
+        margin: 0;
       }
       .tce-quote-checks {
-        max-height: 140px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 160px;
         overflow-y: auto;
-        margin-bottom: 8px;
         padding: 6px;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         background: #f8fafc;
+        flex-shrink: 0;
       }
+      .tce-quote-opt {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 12px;
+        color: #334155;
+        margin: 8px 0 0;
+        cursor: pointer;
+      }
+      .tce-quote-opt input { margin-top: 2px; }
     `;
     this.shadow.appendChild(style);
   }
@@ -806,15 +1886,152 @@ export class CartSidebar {
   private renderItem(item: CartItem): string {
     if (item.type === 'transfer') return this.renderTransferItem(item);
     if (item.type === 'flight') return this.renderFlightItem(item);
+    if (item.type === 'activity') return this.renderActivityItem(item);
+    if (item.type === 'insurance') return this.renderInsuranceItem(item);
     return this.renderHotelItem(item);
+  }
+
+  private getItemSourceUrl(item: CartItem): string | undefined {
+    if (item.sourceUrl) return item.sourceUrl;
+    if ('bookingUrl' in item && item.bookingUrl) return item.bookingUrl;
+    if (item.type === 'hotel' && item.selectedRate.bookingUrl) {
+      return item.selectedRate.bookingUrl;
+    }
+    return undefined;
+  }
+
+  private renderItemOpenLink(item: CartItem): string {
+    const url = this.getItemSourceUrl(item);
+    if (!url) return '';
+    return `<a class="tce-item-open" href="${this.escape(url)}" target="_blank" rel="noopener noreferrer"
+      title="Abrir búsqueda / página de origen" aria-label="Abrir búsqueda">↗</a>`;
+  }
+
+  private renderItemCard(opts: {
+    item: CartItem;
+    typeLabel: string;
+    title: string;
+    meta?: string;
+    /** Base product details (adjustments are appended automatically). */
+    detailsHtml: string;
+  }): string {
+    const expanded = this.isItemExpanded(opts.item.id);
+    const toggleLabel = expanded ? '−' : '+';
+    const toggleTitle = expanded ? 'Recoger' : 'Expandir';
+    const line = this.getItemLineTotal(opts.item);
+    const priceLabel = this.formatPrice(line.currency, line.price);
+    const id = this.escape(opts.item.id);
+    const openLink = this.renderItemOpenLink(opts.item);
+
+    if (!expanded) {
+      return `
+        <div class="tce-item tce-item--collapsed" data-id="${id}">
+          <div class="tce-item-head">
+            <button type="button" class="tce-item-toggle" data-action="toggle-item"
+              data-id="${id}" title="${toggleTitle}" aria-expanded="false">${toggleLabel}</button>
+            <div class="tce-item-summary">
+              <p class="tce-item-summary-type">${this.escape(opts.typeLabel)}</p>
+              <p class="tce-item-summary-title">${this.escape(opts.title)}</p>
+              ${opts.meta ? `<p class="tce-item-summary-meta">${this.escape(opts.meta)}</p>` : ''}
+            </div>
+            <div class="tce-item-summary-price">${this.escape(priceLabel)}</div>
+            ${openLink}
+            <button class="tce-remove" data-action="remove" data-id="${id}" title="Quitar">✕</button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="tce-item" data-id="${id}">
+        <div class="tce-item-head" style="margin-bottom:6px">
+          <button type="button" class="tce-item-toggle" data-action="toggle-item"
+            data-id="${id}" title="${toggleTitle}" aria-expanded="true">${toggleLabel}</button>
+          <div class="tce-item-summary">
+            <p class="tce-item-summary-type" style="margin:0">${this.escape(opts.typeLabel)}</p>
+          </div>
+          ${openLink}
+          <button class="tce-remove" data-action="remove" data-id="${id}" title="Quitar">✕</button>
+        </div>
+        <div class="tce-item-details">
+          ${opts.detailsHtml}
+          ${this.renderItemAdjustments(opts.item)}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderItemAdjustments(item: CartItem): string {
+    const adj = this.getItemAdjustmentsDisplay(item);
+    const line = this.getItemLineTotal(item);
+    const base = this.getItemBasePrice(item);
+    const native = this.getItemPrice(item);
+    const id = this.escape(item.id);
+    const step = this.displayCurrency === 'USD' ? '0.01' : '100';
+    const nativeHint =
+      native.currency !== this.displayCurrency
+        ? `<div class="tce-item-adjust-base">Original: ${this.escape(this.formatPrice(native.currency, native.price))}</div>`
+        : '';
+    return `
+      <div class="tce-item-adjust">
+        <div class="tce-item-adjust-row">
+          <label for="tce-item-mayor-${id}">Mayor valor (${this.displayCurrency})</label>
+          <input
+            id="tce-item-mayor-${id}"
+            class="tce-item-adj-input"
+            type="number"
+            min="0"
+            step="${step}"
+            data-item-id="${id}"
+            data-adj="mayorValor"
+            value="${adj.mayorValor}"
+          />
+        </div>
+        <div class="tce-item-adjust-row">
+          <span class="tce-item-adjust-label">
+            <label for="tce-item-redondeo-${id}">Redondeo (${this.displayCurrency})</label>
+            <button
+              type="button"
+              class="tce-item-round-btn"
+              data-action="round-item"
+              data-id="${id}"
+              title="Redondear este ítem a la siguiente ${this.displayCurrency === 'USD' ? 'decena de dólares' : 'decena de mil'} (base + mayor valor)"
+            >${this.displayCurrency === 'USD' ? '10$' : '10k'}</button>
+          </span>
+          <input
+            id="tce-item-redondeo-${id}"
+            class="tce-item-adj-input"
+            type="number"
+            min="0"
+            step="${step}"
+            data-item-id="${id}"
+            data-adj="redondeo"
+            value="${adj.redondeo}"
+          />
+        </div>
+        <div class="tce-item-adjust-base">Base: ${this.escape(this.formatPrice(base.currency, base.price))}</div>
+        ${nativeHint}
+        <div class="tce-item-line-total" data-item-id="${id}">
+          Total ítem: <strong>${this.escape(this.formatPrice(line.currency, line.price))}</strong>
+        </div>
+      </div>
+    `;
   }
 
   private renderFlightItem(item: FlightCartItem): string {
     const tripLabel = item.routeType === 'roundTrip' ? 'Ida y vuelta' : 'Solo ida';
 
-    const pax: string[] = [`${item.adults} adulto${item.adults !== 1 ? 's' : ''}`];
-    if (item.children > 0) pax.push(`${item.children} niño${item.children !== 1 ? 's' : ''}`);
-    if (item.infants > 0) pax.push(`${item.infants} bebé${item.infants !== 1 ? 's' : ''}`);
+    const pax = item.paxSummary
+      ? [item.paxSummary]
+      : [
+          `${item.adults} adulto${item.adults !== 1 ? 's' : ''}`,
+          ...(item.children > 0
+            ? [`${item.children} niño${item.children !== 1 ? 's' : ''}`]
+            : []),
+          ...(item.infants > 0
+            ? [`${item.infants} bebé${item.infants !== 1 ? 's' : ''}`]
+            : []),
+        ];
 
     const dateRange = [item.departureDate, item.returnDate]
       .filter(Boolean)
@@ -833,28 +2050,39 @@ export class CartSidebar {
           )
           .join('<br>')}</div>`
       : '';
+    const baggageHtml = item.baggageIncluded?.length
+      ? `<div class="tce-price-breakdown"><strong>Equipaje incluido:</strong><br>${item.baggageIncluded
+          .map((bag) => this.escape(bag))
+          .join('<br>')}</div>`
+      : '';
 
-    return `
-      <div class="tce-item" data-id="${this.escape(item.id)}">
-        <div class="tce-item-type">Vuelo · ${this.escape(item.provider)}</div>
-        <div class="tce-item-top">
-          <div class="tce-item-img tce-item-img--placeholder">✈️</div>
-          <div>
-            <p class="tce-item-name">${this.escape(item.title)}</p>
-            <p class="tce-item-address">${this.escape(tripLabel)} · ${this.escape(pax.join(', '))}</p>
-          </div>
+    const priceLabel = this.formatPrice(item.currency, item.price);
+    const detailsHtml = `
+      <div class="tce-item-top">
+        <div class="tce-item-img tce-item-img--placeholder">✈️</div>
+        <div>
+          <p class="tce-item-name">${this.escape(item.title)}</p>
+          <p class="tce-item-address">${this.escape(tripLabel)} · ${this.escape(pax.join(', '))}</p>
         </div>
-        ${dateRange ? `<div class="tce-dates"><strong>${this.escape(dateRange)}</strong></div>` : ''}
-        ${legsHtml}
-        <div class="tce-item-footer">
-          <div>
-            <div class="tce-price">${this.escape(this.formatPrice(item.currency, item.price))}</div>
-            ${breakdownHtml}
-          </div>
-          <button class="tce-remove" data-action="remove" data-id="${this.escape(item.id)}" title="Quitar">✕</button>
+      </div>
+      ${dateRange ? `<div class="tce-dates"><strong>${this.escape(dateRange)}</strong></div>` : ''}
+      ${legsHtml}
+      ${baggageHtml}
+      <div class="tce-item-footer">
+        <div>
+          <div class="tce-price">${this.escape(priceLabel)}</div>
+          ${breakdownHtml}
         </div>
       </div>
     `;
+
+    return this.renderItemCard({
+      item,
+      typeLabel: `Vuelo · ${item.provider}`,
+      title: item.title,
+      meta: [tripLabel, dateRange].filter(Boolean).join(' · '),
+      detailsHtml,
+    });
   }
 
   private renderFlightLeg(leg: FlightCartItem['legs'][number]): string {
@@ -918,32 +2146,54 @@ export class CartSidebar {
       ? rate.roomType.slice(0, 80) + '…'
       : rate.roomType;
 
-    return `
-      <div class="tce-item" data-id="${this.escape(item.id)}">
-        <div class="tce-item-type">Hotel</div>
-        <div class="tce-item-top">
-          ${img}
-          <div>
-            <p class="tce-item-name">${this.escape(item.hotelName)} ${stars}</p>
-            ${item.address ? `<p class="tce-item-address">${this.escape(item.address)}</p>` : ''}
-          </div>
+    const priceLabel = this.formatPrice(rate.currency, rate.price);
+    const roomsHint =
+      rate.roomsCount && rate.roomsCount > 1
+        ? ` · ${rate.roomsCount} habitaciones${
+            rate.pricePerRoom
+              ? ` (${this.formatPrice(rate.currency, rate.pricePerRoom)} c/u)`
+              : ''
+          }`
+        : '';
+    const detailsHtml = `
+      <div class="tce-item-top">
+        ${img}
+        <div>
+          <p class="tce-item-name">${this.escape(item.hotelName)} ${stars}</p>
+          ${item.address ? `<p class="tce-item-address">${this.escape(item.address)}</p>` : ''}
         </div>
-        <div class="tce-dates">
-          <strong>${this.escape(item.checkIn)}</strong> → <strong>${this.escape(item.checkOut)}</strong>
-          &nbsp;·&nbsp; ${item.nights} noche${item.nights !== 1 ? 's' : ''}
-          &nbsp;·&nbsp; ${this.escape(this.formatOccupancy(item))}
-        </div>
-        <p class="tce-detail"><span class="tce-detail-label">Habitación:</span> ${this.escape(roomShort)}</p>
-        ${rate.boardBasis ? `<p class="tce-detail"><span class="tce-detail-label">Régimen:</span> ${this.escape(rate.boardBasis)}</p>` : ''}
-        <div class="tce-item-footer">
-          <div>
-            <div class="tce-price">${this.escape(this.formatPrice(rate.currency, rate.price))}</div>
-            <div class="tce-supplier">${this.escape(rate.supplierName)}</div>
-          </div>
-          <button class="tce-remove" data-action="remove" data-id="${this.escape(item.id)}" title="Quitar">✕</button>
+      </div>
+      <div class="tce-dates">
+        <strong>${this.escape(item.checkIn)}</strong> → <strong>${this.escape(item.checkOut)}</strong>
+        &nbsp;·&nbsp; ${item.nights} noche${item.nights !== 1 ? 's' : ''}
+      </div>
+      ${
+        item.occupancy.length > 1
+          ? item.occupancy
+              .map(
+                (room, i) =>
+                  `<p class="tce-detail"><span class="tce-detail-label">Hab ${i + 1}:</span> ${this.escape(this.formatRoomOccupancy(room, i).replace(/^Hab \d+:\s*/, ''))}</p>`
+              )
+              .join('')
+          : `<p class="tce-detail"><span class="tce-detail-label">Ocupación:</span> ${this.escape(this.formatOccupancy(item))}</p>`
+      }
+      <p class="tce-detail"><span class="tce-detail-label">Habitación:</span> ${this.escape(roomShort || (rate.roomsCount && rate.roomsCount > 1 ? `${rate.roomsCount} habitaciones` : '—'))}</p>
+      ${rate.boardBasis ? `<p class="tce-detail"><span class="tce-detail-label">Régimen:</span> ${this.escape(rate.boardBasis)}</p>` : ''}
+      <div class="tce-item-footer">
+        <div>
+          <div class="tce-price">${this.escape(priceLabel)}${this.escape(roomsHint)}</div>
+          <div class="tce-supplier">${this.escape(rate.supplierName)}</div>
         </div>
       </div>
     `;
+
+    return this.renderItemCard({
+      item,
+      typeLabel: 'Hotel',
+      title: item.hotelName,
+      meta: `${item.checkIn} → ${item.checkOut} · ${item.nights} noche${item.nights !== 1 ? 's' : ''}`,
+      detailsHtml,
+    });
   }
 
   private renderTransferItem(item: TransferCartItem): string {
@@ -960,33 +2210,114 @@ export class CartSidebar {
       </p>
     `).join('');
 
-    return `
-      <div class="tce-item" data-id="${this.escape(item.id)}">
-        <div class="tce-item-type">Traslado</div>
-        <div class="tce-item-top">
-          ${img}
-          <div>
-            <p class="tce-item-name">${this.escape(item.name)}</p>
-            ${item.vehicleDescription ? `<p class="tce-item-address">${this.escape(item.vehicleDescription)}</p>` : ''}
-            ${item.transferType ? `<p class="tce-item-address">${this.escape(item.transferType)}</p>` : ''}
-          </div>
+    const priceLabel = this.formatPrice(item.currency, item.price);
+    const detailsHtml = `
+      <div class="tce-item-top">
+        ${img}
+        <div>
+          <p class="tce-item-name">${this.escape(item.name)}</p>
+          ${item.vehicleDescription ? `<p class="tce-item-address">${this.escape(item.vehicleDescription)}</p>` : ''}
+          ${item.transferType ? `<p class="tce-item-address">${this.escape(item.transferType)}</p>` : ''}
         </div>
-        <div class="tce-dates">
-          <strong>${this.escape(item.from)}</strong> → <strong>${this.escape(item.to)}</strong>
-          &nbsp;·&nbsp; ${this.escape(tripLabel)}
-          &nbsp;·&nbsp; ${item.adults} adulto${item.adults !== 1 ? 's' : ''}
-          ${item.children > 0 ? `, ${item.children} niño${item.children !== 1 ? 's' : ''}` : ''}
-        </div>
-        ${legsHtml}
-        <div class="tce-item-footer">
-          <div>
-            <div class="tce-price">${this.escape(this.formatPrice(item.currency, item.price))}</div>
-            <div class="tce-supplier">${this.escape(item.supplierName)}</div>
-          </div>
-          <button class="tce-remove" data-action="remove" data-id="${this.escape(item.id)}" title="Quitar">✕</button>
+      </div>
+      <div class="tce-dates">
+        <strong>${this.escape(item.from)}</strong> → <strong>${this.escape(item.to)}</strong>
+        &nbsp;·&nbsp; ${this.escape(tripLabel)}
+        &nbsp;·&nbsp; ${item.adults} adulto${item.adults !== 1 ? 's' : ''}
+        ${item.children > 0 ? `, ${item.children} niño${item.children !== 1 ? 's' : ''}` : ''}
+      </div>
+      ${legsHtml}
+      <div class="tce-item-footer">
+        <div>
+          <div class="tce-price">${this.escape(priceLabel)}</div>
+          <div class="tce-supplier">${this.escape(item.supplierName)}</div>
         </div>
       </div>
     `;
+
+    return this.renderItemCard({
+      item,
+      typeLabel: 'Traslado',
+      title: item.name,
+      meta: `${item.from} → ${item.to} · ${tripLabel}`,
+      detailsHtml,
+    });
+  }
+
+  private renderActivityItem(item: ActivityCartItem): string {
+    const img = item.imageUrl
+      ? `<img class="tce-item-img" src="${this.escape(item.imageUrl)}" alt="">`
+      : `<div class="tce-item-img tce-item-img--placeholder">🎟️</div>`;
+    const priceLabel = this.formatPrice(item.currency, item.price);
+    const usdLine =
+      item.priceUsd && this.getEffectiveTrm() > 0
+        ? `<div class="tce-supplier">USD ${item.priceUsd.toLocaleString('es-CO')} · TRM ${Math.round(this.getEffectiveTrm()).toLocaleString('es-CO')} (día+sup.)</div>`
+        : item.priceUsd
+          ? `<div class="tce-supplier">USD ${item.priceUsd.toLocaleString('es-CO')}</div>`
+          : '';
+    const detailsHtml = `
+      <div class="tce-item-top">
+        ${img}
+        <div>
+          <p class="tce-item-name">${this.escape(item.name)}</p>
+          ${item.description ? `<p class="tce-item-address">${this.escape(item.description)}</p>` : ''}
+        </div>
+      </div>
+      <div class="tce-dates">
+        ${item.checkIn ? `<strong>${this.escape(item.checkIn)}</strong>` : ''}
+        ${item.checkOut ? ` → <strong>${this.escape(item.checkOut)}</strong>` : ''}
+        &nbsp;·&nbsp; ${item.adults} adulto${item.adults !== 1 ? 's' : ''}
+        ${item.children > 0 ? `, ${item.children} niño${item.children !== 1 ? 's' : ''}` : ''}
+      </div>
+      <div class="tce-item-footer">
+        <div>
+          <div class="tce-price">${this.escape(priceLabel)}</div>
+          <div class="tce-supplier">${this.escape(item.supplierName)}</div>
+          ${usdLine}
+        </div>
+      </div>
+    `;
+    return this.renderItemCard({
+      item,
+      typeLabel: 'Actividad',
+      title: item.name,
+      meta: [item.checkIn, item.supplierName].filter(Boolean).join(' · '),
+      detailsHtml,
+    });
+  }
+
+  private renderInsuranceItem(item: InsuranceCartItem): string {
+    const img = item.imageUrl
+      ? `<img class="tce-item-img" src="${this.escape(item.imageUrl)}" alt="">`
+      : `<div class="tce-item-img tce-item-img--placeholder">🛡️</div>`;
+    const priceLabel = this.formatPrice(item.currency, item.price);
+    const detailsHtml = `
+      <div class="tce-item-top">
+        ${img}
+        <div>
+          <p class="tce-item-name">${this.escape(item.name)}</p>
+          ${item.planLabel ? `<p class="tce-item-address">${this.escape(item.planLabel)}</p>` : ''}
+        </div>
+      </div>
+      <div class="tce-dates">
+        ${item.checkIn ? `<strong>${this.escape(item.checkIn)}</strong>` : ''}
+        ${item.checkOut ? ` → <strong>${this.escape(item.checkOut)}</strong>` : ''}
+        &nbsp;·&nbsp; ${item.passengers} pasajero${item.passengers !== 1 ? 's' : ''}
+      </div>
+      <div class="tce-item-footer">
+        <div>
+          <div class="tce-price">${this.escape(priceLabel)}</div>
+          <div class="tce-supplier">${this.escape(item.supplierName)}</div>
+        </div>
+      </div>
+    `;
+    return this.renderItemCard({
+      item,
+      typeLabel: 'Seguro',
+      title: item.name,
+      meta: [item.planLabel, item.checkIn].filter(Boolean).join(' · '),
+      detailsHtml,
+    });
   }
 
   private escape(text: string): string {
@@ -1005,46 +2336,404 @@ export class CartSidebar {
     const itemsHtml = this.items.length === 0
       ? `<div class="tce-empty">
            <div class="tce-empty-icon">🛒</div>
-           <p>Tu carrito está vacío.<br>Agrega hoteles/traslados con <strong>+ 🛒</strong>, o un vuelo desde el checkout de Despegar.</p>
+           <p>Tu carrito está vacío.<br>Agrega hoteles, traslados, actividades, seguros o vuelos con <strong>+ 🛒 GT</strong>.</p>
          </div>`
       : this.items.map((item) => this.renderItem(item)).join('');
 
+    const tab = (id: 'items' | 'total' | 'whatsapp' | 'history', label: string) => `
+      <button type="button"
+        class="tce-panel-tab ${this.panelTab === id ? 'tce-panel-tab--active' : ''}"
+        data-action="panel-tab"
+        data-tab="${id}">
+        ${label}
+      </button>`;
+
+    let bodyHtml = '';
+    if (this.panelTab === 'history') {
+      bodyHtml = this.renderHistorySection();
+    } else if (this.items.length === 0) {
+      bodyHtml = itemsHtml;
+    } else if (this.panelTab === 'items') {
+      bodyHtml = `
+        ${itemsHtml}
+        <div class="tce-footer tce-footer--scroll" style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0">
+          ${this.renderHotelCompareBlock({ compact: true })}
+          <button class="tce-clear" data-action="clear">Vaciar carrito</button>
+        </div>`;
+    } else if (this.panelTab === 'total') {
+      bodyHtml = `
+        <div class="tce-footer tce-footer--scroll">
+          <div class="tce-fees">${this.renderFees()}</div>
+          <div class="tce-totals">${this.renderTotals()}</div>
+        </div>`;
+    } else {
+      bodyHtml = `<div class="tce-quote">${this.renderQuoteSection()}</div>`;
+    }
+
+    const wideClass = this.panelWide ? ' tce-panel--wide' : '';
+    const tabWideClass = this.panelWide ? ' tce-tab--wide' : '';
+    const widthTitle = this.panelWide ? 'Reducir ancho' : 'Ampliar ancho';
+    const widthIcon = this.panelWide ? '››' : '‹‹';
+    const trmValue = this.trmRate > 0 ? String(Math.round(this.trmRate)) : '';
+    const effTrm = this.getEffectiveTrm();
+    const trmEffHint =
+      this.trmRate > 0
+        ? ` · usada ${Math.round(effTrm).toLocaleString('es-CO')} (+${Math.round(this.trmSuplemento).toLocaleString('es-CO')} sup.)`
+        : '';
+
     root.innerHTML = `
-      <button class="tce-tab ${this.isOpen ? 'tce-tab--open' : ''}" data-action="toggle">
+      <button class="tce-tab ${this.isOpen ? 'tce-tab--open' : ''}${tabWideClass}" data-action="toggle">
         🛒 Carrito
         ${this.items.length > 0 ? `<span class="tce-badge">${this.items.length}</span>` : ''}
       </button>
-      <div class="tce-panel ${this.isOpen ? 'tce-panel--open' : ''}">
+      <div class="tce-panel ${this.isOpen ? 'tce-panel--open' : ''}${wideClass}">
         <div class="tce-header">
-          <div>
+          <div class="tce-header-title">
             <h2>Mi Carrito</h2>
-            <span>${this.items.length} producto${this.items.length !== 1 ? 's' : ''}</span>
+            <span>· ${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
           </div>
-          <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
+          <label class="tce-hotel-options-toggle" title="Comparar cada hotel como una alternativa con su propio total">
+            <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
+            Comparar hoteles
+          </label>
+          <div class="tce-header-actions">
+            <button type="button" class="tce-width-toggle" data-action="toggle-width"
+              title="${widthTitle}" aria-label="${widthTitle}">${widthIcon}</button>
+            <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
+          </div>
         </div>
-        ${this.searchContext && this.formatSearchSummary(this.searchContext)
-          ? `<div class="tce-search-summary">
-               <span class="tce-search-summary-label">Búsqueda actual</span>
-               <span class="tce-search-summary-text">${this.formatSearchSummary(this.searchContext)}</span>
-             </div>`
-          : ''}
-        <div class="tce-body">${itemsHtml}</div>
-        ${this.items.length > 0 ? `
-          <div class="tce-footer">
-            <div class="tce-fees">${this.renderFees()}</div>
-            <div class="tce-totals">${this.renderTotals()}</div>
-            <div class="tce-quote">${this.renderQuoteSection()}</div>
-            <button class="tce-clear" data-action="clear">Vaciar carrito</button>
+        <div class="tce-trm-bar">
+          <label for="tce-trm-input">TRM</label>
+          <input id="tce-trm-input" class="tce-trm-input" type="number" min="0" step="0.01"
+            value="${trmValue}" placeholder="COP/USD" />
+          <button type="button" class="tce-trm-refresh" data-action="refresh-trm"
+            title="Actualizar TRM desde dolar-colombia.com">TRM web</button>
+          <div class="tce-currency-toggle" title="Unificar precios del carrito en una moneda (usa TRM)">
+            <button type="button" class="tce-currency-btn ${this.displayCurrency === 'COP' ? 'tce-currency-btn--active' : ''}"
+              data-action="display-currency" data-currency="COP">COP</button>
+            <button type="button" class="tce-currency-btn ${this.displayCurrency === 'USD' ? 'tce-currency-btn--active' : ''}"
+              data-action="display-currency" data-currency="USD"
+              ${this.canUseDisplayCurrency('USD') ? '' : 'disabled title="Necesitas TRM para ver todo en USD"'}
+            >USD</button>
           </div>
-        ` : ''}
+          <span class="tce-trm-hint">Vista ${this.displayCurrency}${trmEffHint} · <a href="${TRM_REFERENCE_PAGE}" target="_blank" rel="noopener" style="color:#92400e">dolar-colombia.com</a></span>
+        </div>
+        ${(() => {
+          const summary =
+            this.searchContext && this.formatSearchSummary(this.searchContext)
+              ? this.formatSearchSummary(this.searchContext)
+              : this.resolveOriginLabel()
+                ? `Origen: ${this.escape(this.resolveOriginLabel()!)}`
+                : '';
+          return summary
+            ? `<div class="tce-search-summary">
+                 <span class="tce-search-summary-label">Búsqueda actual</span>
+                 <span class="tce-search-summary-text">${summary}</span>
+               </div>`
+            : '';
+        })()}
+        <div class="tce-client-row">
+          <label for="tce-client-input">CLIENTE:</label>
+          <input
+            id="tce-client-input"
+            class="tce-client-input"
+            type="text"
+            maxlength="120"
+            placeholder="Nombre del cliente (solo historial)"
+            value="${this.escape(this.clientName)}"
+          />
+        </div>
+        <nav class="tce-panel-tabs" role="tablist">
+          ${tab('items', '🛒 Productos')}
+          ${this.items.length > 0 ? tab('total', '💰 Total') : ''}
+          ${this.items.length > 0 ? tab('whatsapp', '💬 WhatsApp') : ''}
+          ${tab('history', '🕘 Historial')}
+        </nav>
+        <div class="tce-body">${bodyHtml}</div>
       </div>
     `;
 
     this.shadow.appendChild(root);
     this.bindEvents(root);
-    if (this.quoteOpen) {
+    if (this.panelTab === 'whatsapp' && this.items.length > 0) {
       this.showQuotePreview();
     }
+  }
+
+  private renderHistorySection(): string {
+    if (this.history.length === 0) {
+      return `<div class="tce-empty"><p>Aún no hay historial.<br>Se guarda al copiar WhatsApp o vaciar el carrito.</p></div>`;
+    }
+    return this.history.map((h) => this.renderHistoryEntry(h)).join('');
+  }
+
+  private historyItemLineTotal(
+    item: CartItem,
+    trm?: number,
+    targetCurrency: string = 'COP'
+  ): { currency: string; price: number } {
+    let { currency, price } = this.getItemPrice(item);
+    const rate = trm && trm > 0 ? trm : 0;
+    const target = (targetCurrency || 'COP').toUpperCase();
+    const from = (currency || 'COP').toUpperCase();
+    if (from !== target && rate > 0) {
+      if (from === 'USD' && target === 'COP') {
+        price = usdToCop(price, rate);
+        currency = 'COP';
+      } else if (from === 'COP' && target === 'USD') {
+        price = copToUsd(price, rate);
+        currency = 'USD';
+      }
+    }
+    const adj = this.getItemAdjustments(item);
+    let mayor = adj.mayorValor;
+    let redondeo = adj.redondeo;
+    // Item adj stored as COP; convert if history total is USD.
+    if (target === 'USD' && rate > 0) {
+      mayor = copToUsd(mayor, rate);
+      redondeo = copToUsd(redondeo, rate);
+    }
+    return {
+      currency: target === 'USD' || target === 'COP' ? target : currency,
+      price: price + mayor + redondeo,
+    };
+  }
+
+  private formatHistoryPax(h: HistoryEntry): string {
+    const ctx = h.searchContext;
+    const flight = h.items.find((i): i is FlightCartItem => i.type === 'flight');
+    let adults = 0;
+    let children = 0;
+    let infants = 0;
+
+    if (flight && flight.adults + flight.children + flight.infants > 0) {
+      adults = flight.adults;
+      children = flight.children;
+      infants = flight.infants;
+    } else {
+      const hotel = h.items.find((i): i is HotelCartItem => i.type === 'hotel');
+      if (hotel) {
+        adults = hotel.occupancy.reduce((s, o) => s + o.adults, 0);
+        children = hotel.occupancy.reduce((s, o) => s + o.children, 0);
+      } else if (ctx) {
+        adults = ctx.totalAdults;
+        children = ctx.totalChildren;
+      }
+    }
+
+    const parts: string[] = [];
+    if (adults > 0) parts.push(`${adults} adulto${adults !== 1 ? 's' : ''}`);
+    if (children > 0) parts.push(`${children} niño${children !== 1 ? 's' : ''}`);
+    if (infants > 0) parts.push(`${infants} bebé${infants !== 1 ? 's' : ''}`);
+    return parts.join(', ');
+  }
+
+  private formatHistoryOrigin(h: HistoryEntry): string | null {
+    const flight = h.items.find((i): i is FlightCartItem => i.type === 'flight');
+    if (flight) {
+      const o = (flight.origin.name || flight.origin.code || '').trim();
+      if (o) return o;
+    }
+    return h.searchContext?.originText?.trim() || null;
+  }
+
+  private formatHistoryDates(h: HistoryEntry): string | null {
+    const ctx = h.searchContext;
+    const hotel = h.items.find((i): i is HotelCartItem => i.type === 'hotel');
+    const flight = h.items.find((i): i is FlightCartItem => i.type === 'flight');
+
+    let checkIn = hotel?.checkIn || ctx?.checkIn;
+    let checkOut = hotel?.checkOut || ctx?.checkOut;
+    let nights = hotel?.nights || ctx?.nights;
+
+    if ((!checkIn || !checkOut) && flight) {
+      // flight dates may be ISO
+      const toLabel = (iso?: string) => {
+        if (!iso) return undefined;
+        const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+        return iso;
+      };
+      checkIn = checkIn || toLabel(flight.departureDate);
+      checkOut = checkOut || toLabel(flight.returnDate);
+    }
+
+    if (!checkIn && !checkOut) return null;
+    const range = checkOut ? `${checkIn} → ${checkOut}` : checkIn!;
+    const nightBit =
+      nights && nights > 0 ? ` · ${nights} noche${nights !== 1 ? 's' : ''}` : '';
+    return `${range}${nightBit}`;
+  }
+
+  private renderHistoryServiceLines(h: HistoryEntry): string {
+    const trm = h.trm;
+    return h.items
+      .map((item) => {
+        const line = this.historyItemLineTotal(item, trm, h.primaryCurrency || 'COP');
+        const price = this.formatPrice(line.currency, line.price);
+        const adj = this.getItemAdjustments(item);
+        const adjBits: string[] = [];
+        if (adj.mayorValor > 0) {
+          adjBits.push(`mayor ${this.formatPrice(line.currency, adj.mayorValor)}`);
+        }
+        if (adj.redondeo > 0) {
+          adjBits.push(`redondeo ${this.formatPrice(line.currency, adj.redondeo)}`);
+        }
+        const adjLine = adjBits.length
+          ? `<div class="tce-history-svc-line">${this.escape(adjBits.join(' · '))}</div>`
+          : '';
+
+        if (item.type === 'hotel') {
+          const rate = item.selectedRate;
+          const roomBits = [rate.roomType, rate.boardBasis].filter(Boolean).join(' · ');
+          return `
+            <div class="tce-history-svc">
+              <div class="tce-history-svc-title">Hotel: ${this.escape(item.hotelName)}${item.stars ? ` · ${item.stars}★` : ''}</div>
+              ${roomBits ? `<div class="tce-history-svc-line">${this.escape(roomBits)}</div>` : ''}
+              <div class="tce-history-svc-line">${this.escape(item.checkIn)} → ${this.escape(item.checkOut)}${item.nights ? ` · ${item.nights} noche${item.nights !== 1 ? 's' : ''}` : ''} · ${this.escape(this.formatOccupancy(item))}</div>
+              <div class="tce-history-svc-price">${this.escape(price)}</div>
+              ${adjLine}
+            </div>`;
+        }
+
+        if (item.type === 'flight') {
+          const trip = item.routeType === 'roundTrip' ? 'Ida y vuelta' : 'Solo ida';
+          const from = item.origin.name || item.origin.code;
+          const to = item.destination.name || item.destination.code;
+          const pax =
+            item.paxSummary ||
+            [
+              item.adults > 0 ? `${item.adults} adulto${item.adults !== 1 ? 's' : ''}` : '',
+              item.children > 0 ? `${item.children} niño${item.children !== 1 ? 's' : ''}` : '',
+              item.infants > 0 ? `${item.infants} bebé${item.infants !== 1 ? 's' : ''}` : '',
+            ]
+              .filter(Boolean)
+              .join(', ');
+          const dateBits = [item.departureDate, item.returnDate]
+            .filter(Boolean)
+            .join(' → ');
+          return `
+            <div class="tce-history-svc">
+              <div class="tce-history-svc-title">Vuelo: ${this.escape(from)} → ${this.escape(to)} · ${trip}</div>
+              ${item.title ? `<div class="tce-history-svc-line">${this.escape(item.title)}</div>` : ''}
+              ${dateBits ? `<div class="tce-history-svc-line">${this.escape(dateBits)}</div>` : ''}
+              ${pax ? `<div class="tce-history-svc-line">${this.escape(pax)}</div>` : ''}
+              <div class="tce-history-svc-price">${this.escape(price)}</div>
+              ${adjLine}
+            </div>`;
+        }
+
+        if (item.type === 'transfer') {
+          const pax = [
+            item.adults > 0 ? `${item.adults} adulto${item.adults !== 1 ? 's' : ''}` : '',
+            item.children > 0 ? `${item.children} niño${item.children !== 1 ? 's' : ''}` : '',
+          ]
+            .filter(Boolean)
+            .join(', ');
+          const route = [item.from, item.to].filter(Boolean).join(' → ');
+          const dateBits = item.checkOut
+            ? `${item.checkIn} → ${item.checkOut}`
+            : item.checkIn;
+          return `
+            <div class="tce-history-svc">
+              <div class="tce-history-svc-title">Traslado: ${this.escape(item.name)}</div>
+              ${route ? `<div class="tce-history-svc-line">${this.escape(route)}</div>` : ''}
+              ${dateBits ? `<div class="tce-history-svc-line">${this.escape(dateBits)}</div>` : ''}
+              ${pax ? `<div class="tce-history-svc-line">${this.escape(pax)}</div>` : ''}
+              <div class="tce-history-svc-price">${this.escape(price)}</div>
+              ${adjLine}
+            </div>`;
+        }
+
+        if (item.type === 'activity') {
+          const pax = [
+            item.adults > 0 ? `${item.adults} adulto${item.adults !== 1 ? 's' : ''}` : '',
+            item.children > 0 ? `${item.children} niño${item.children !== 1 ? 's' : ''}` : '',
+          ]
+            .filter(Boolean)
+            .join(', ');
+          const dateBits = item.checkOut
+            ? `${item.checkIn} → ${item.checkOut}`
+            : item.checkIn;
+          return `
+            <div class="tce-history-svc">
+              <div class="tce-history-svc-title">Actividad: ${this.escape(item.name)}</div>
+              ${dateBits ? `<div class="tce-history-svc-line">${this.escape(dateBits)}</div>` : ''}
+              ${pax ? `<div class="tce-history-svc-line">${this.escape(pax)}</div>` : ''}
+              <div class="tce-history-svc-price">${this.escape(price)}</div>
+              ${adjLine}
+            </div>`;
+        }
+
+        if (item.type === 'insurance') {
+          const dateBits = item.checkOut
+            ? `${item.checkIn} → ${item.checkOut}`
+            : item.checkIn;
+          return `
+            <div class="tce-history-svc">
+              <div class="tce-history-svc-title">Seguro: ${this.escape(item.name)}</div>
+              ${dateBits ? `<div class="tce-history-svc-line">${this.escape(dateBits)}</div>` : ''}
+              ${item.passengers > 0 ? `<div class="tce-history-svc-line">${item.passengers} pasajero${item.passengers !== 1 ? 's' : ''}</div>` : ''}
+              <div class="tce-history-svc-price">${this.escape(price)}</div>
+              ${adjLine}
+            </div>`;
+        }
+
+        return '';
+      })
+      .join('');
+  }
+
+  private renderHistoryEntry(h: HistoryEntry): string {
+    const when = new Date(h.createdAt).toLocaleString('es-CO');
+    const dest = (h.destination || h.searchContext?.destinationText || 'Sin destino').toLocaleUpperCase(
+      'es-CO'
+    );
+    const origin = this.formatHistoryOrigin(h);
+    const dates = this.formatHistoryDates(h);
+    const pax = this.formatHistoryPax(h);
+    const currency = h.primaryCurrency || 'COP';
+    const total =
+      h.grandTotal !== undefined ? this.formatPrice(currency, h.grandTotal) : '';
+    const rate = h.trm && h.trm > 0 ? h.trm : 0;
+    const feeToDisplay = (cop: number) =>
+      currency === 'USD' && rate > 0 ? copToUsd(cop, rate) : cop;
+
+    const mayor = feeToDisplay(Math.max(0, Number(h.fees?.[MAYOR_VALOR_ID]) || 0));
+    const redondeo = feeToDisplay(Math.max(0, Number(h.fees?.[REDONDEO_ID]) || 0));
+    const ta = feeToDisplay(Math.max(0, Number(h.taTotal) || 0));
+
+    const feeLines: string[] = [];
+    if (mayor > 0) {
+      feeLines.push(
+        `<div>Mayor valor cobrado: ${this.escape(this.formatPrice(currency, mayor))}</div>`
+      );
+    }
+    if (ta > 0) {
+      feeLines.push(`<div>TA: ${this.escape(this.formatPrice(currency, ta))}</div>`);
+    }
+    if (redondeo > 0) {
+      feeLines.push(
+        `<div>Redondeo: ${this.escape(this.formatPrice(currency, redondeo))}</div>`
+      );
+    }
+
+    return `
+      <div class="tce-history-item">
+        <strong>${formatQuoteRef(h.quoteNumber)}</strong>
+        ${h.clientName ? ` · ${this.escape(h.clientName)}` : ''}
+        ${h.advisorName ? ` · Asesor: ${this.escape(h.advisorName)}` : ''}
+        <div class="tce-history-trip">
+          ${origin ? `<div>Origen: ${this.escape(origin)}</div>` : ''}
+          <div>Destino: ${this.escape(dest)}</div>
+          ${dates ? `<div>Fechas: ${this.escape(dates)}</div>` : ''}
+          ${pax ? `<div>Viajeros: ${this.escape(pax)}</div>` : ''}
+        </div>
+        <div class="tce-history-meta">${this.escape(when)}${h.trm ? ` · TRM ${Math.round(h.trm).toLocaleString('es-CO')}` : ''}</div>
+        <div class="tce-history-services">${this.renderHistoryServiceLines(h)}</div>
+        ${feeLines.length ? `<div class="tce-history-fees">${feeLines.join('')}</div>` : ''}
+        ${total ? `<div class="tce-history-total">Total: ${this.escape(total)}</div>` : ''}
+      </div>`;
   }
 
   private renderQuoteSection(): string {
@@ -1073,41 +2762,38 @@ export class CartSidebar {
     };
 
     return `
-      <button type="button" class="tce-quote-toggle" data-action="toggle-quote">
-        <span>📋 Cotización WhatsApp</span>
-        <span>${this.quoteOpen ? '▲' : '▼'}</span>
-      </button>
-      ${
-        this.quoteOpen
-          ? `
-        <div class="tce-quote-body">
-          <p class="tce-quote-hint">
-            Abajo está el <strong>mensaje listo para WhatsApp</strong> (gran total).
-            Usa <strong>Copiar WhatsApp</strong> o selecciona el texto verde y Ctrl+C.
-          </p>
-          <p class="tce-quote-preview-label">Texto para pegar en el chat</p>
-          <textarea class="tce-quote-preview" readonly></textarea>
-          <div class="tce-quote-actions">
-            <button type="button" class="tce-quote-btn" data-action="copy-quote">Copiar WhatsApp</button>
-            <button type="button" class="tce-quote-btn tce-quote-btn--secondary" data-action="preview-quote">Actualizar texto</button>
-          </div>
-          ${status}
-          <p class="tce-quote-hint" style="margin-top:10px">Qué incluir en el mensaje (editar líneas en el popup → Config):</p>
-          <div class="tce-quote-checks">
-            ${group('include', 'Tarifa incluye')}
-            ${group('exclude', 'Plan no incluye')}
-            ${group('policy', 'Nota importante')}
-          </div>
-        </div>`
-          : ''
-      }
+      <p class="tce-quote-hint">
+        Mensaje listo para WhatsApp (gran total).
+        <strong>Copiar WhatsApp</strong> o selecciona el texto verde y Ctrl+C.
+      </p>
+      <label class="tce-quote-opt">
+        <input type="checkbox" class="tce-usd-equiv-check" ${this.includeUsdEquiv ? 'checked' : ''}>
+        Incluir conversión COP ↔ USD (TRM) en el mensaje
+      </label>
+      <p class="tce-quote-preview-label">Texto para pegar en el chat</p>
+      <textarea class="tce-quote-preview" readonly></textarea>
+      <div class="tce-quote-actions">
+        <button type="button" class="tce-quote-btn" data-action="copy-quote">Copiar WhatsApp</button>
+        <button type="button" class="tce-quote-btn tce-quote-btn--secondary" data-action="preview-quote">Actualizar texto</button>
+      </div>
+      ${status}
+      <p class="tce-quote-hint">Qué incluir (editar líneas en el popup → Config):</p>
+      <div class="tce-quote-checks">
+        ${group('include', 'Tarifa incluye')}
+        ${group('exclude', 'Plan no incluye')}
+        ${group('policy', 'Nota importante')}
+      </div>
     `;
   }
 
-  private buildCurrentQuote(): string {
+  private async buildCurrentQuote(): Promise<string> {
+    await this.ensurePendingQuoteNumber();
     const subtotals = this.getTotalsByCurrency();
     const feesTotal = this.getFeesTotal();
     const primaryCurrency = this.getPrimaryCurrency(subtotals) || 'COP';
+    const itemTotals = Object.fromEntries(
+      this.items.map((item) => [item.id, this.getItemLineTotal(item).price])
+    );
     return buildWhatsAppQuote({
       items: this.items,
       searchContext: this.searchContext,
@@ -1115,11 +2801,17 @@ export class CartSidebar {
       feesTotal,
       primaryCurrency,
       quoteLines: this.quoteLines,
+      quoteNumber: this.pendingQuoteNumber ?? undefined,
+      advisorName: this.advisorName,
+      trm: this.getEffectiveTrm() > 0 ? this.getEffectiveTrm() : undefined,
+      includeUsdEquiv: this.includeUsdEquiv,
+      hotelsAsOptions: this.hotelsAsOptions,
+      itemTotals,
     });
   }
 
   private async copyQuoteToClipboard(): Promise<void> {
-    const text = this.buildCurrentQuote();
+    const text = await this.buildCurrentQuote();
     const preview = this.shadow.querySelector('.tce-quote-preview') as HTMLTextAreaElement | null;
     if (preview) preview.value = text;
 
@@ -1139,6 +2831,10 @@ export class CartSidebar {
       }
     }
 
+    if (ok) {
+      await this.archiveCurrentCart('Copiar WhatsApp');
+    }
+
     this.quoteCopyStatus = ok ? 'ok' : 'err';
     const statusEl = this.shadow.querySelector('.tce-quote-status');
     if (statusEl) {
@@ -1155,7 +2851,10 @@ export class CartSidebar {
 
   private showQuotePreview(): void {
     const preview = this.shadow.querySelector('.tce-quote-preview') as HTMLTextAreaElement | null;
-    if (preview) preview.value = this.buildCurrentQuote();
+    if (!preview) return;
+    void this.buildCurrentQuote().then((text) => {
+      preview.value = text;
+    });
   }
 
   private async toggleQuoteLine(lineId: string, enabled: boolean): Promise<void> {
@@ -1167,42 +2866,95 @@ export class CartSidebar {
   }
 
   private renderFees(): string {
-    return FEE_DEFINITIONS.map((def) => `
+    const pax = this.getTaPaxCount();
+    const taTotalDisplay = this.copAmountToDisplay(this.getTaTotal());
+    const primaryCurrency = this.displayCurrency;
+    const type = this.taSelection.type;
+    const feeStep = this.displayCurrency === 'USD' ? '0.01' : '100';
+    const taStep = this.displayCurrency === 'USD' ? '0.01' : '100';
+
+    const feeRows = FEE_DEFINITIONS.map((def) => `
       <div class="tce-fee-row">
-        <label for="tce-fee-${def.id}">${this.escape(def.label)}</label>
+        <label for="tce-fee-${def.id}">${this.escape(def.label)} (${this.displayCurrency})</label>
         <input
           type="number"
           min="0"
-          step="0.01"
+          step="${feeStep}"
           id="tce-fee-${def.id}"
           class="tce-fee-input"
           data-fee-id="${def.id}"
-          value="${this.fees[def.id] ?? 0}"
+          value="${this.copAmountToDisplay(this.fees[def.id] ?? 0)}"
         >
       </div>
     `).join('');
+
+    const taBlock = `
+      <div class="tce-ta-block">
+        <div class="tce-fee-row">
+          <label for="tce-ta-type">Tipo TA</label>
+          <select id="tce-ta-type" class="tce-ta-type">
+            <option value="nacional_rt" ${type === 'nacional_rt' ? 'selected' : ''}>Ida y vuelta (nacional)</option>
+            <option value="nacional_ow" ${type === 'nacional_ow' ? 'selected' : ''}>Solo ida (nacional)</option>
+            <option value="internacional" ${type === 'internacional' ? 'selected' : ''}>Internacional (USD)</option>
+          </select>
+        </div>
+        <div class="tce-fee-row">
+          <label for="tce-ta-unit">Valor de TA (${this.displayCurrency})</label>
+          <input
+            type="number"
+            min="0"
+            step="${taStep}"
+            id="tce-ta-unit"
+            class="tce-ta-unit"
+            value="${this.copAmountToDisplay(this.taSelection.unitCop || 0)}"
+          >
+        </div>
+        <div class="tce-ta-summary">
+          TA × ${pax} pasajero${pax !== 1 ? 's' : ''} =
+          <strong>${this.escape(this.formatPrice(primaryCurrency, taTotalDisplay))}</strong>
+          <button type="button" class="tce-ta-suggest" data-action="ta-from-flight"
+            title="Sugerir tipo según el vuelo del carrito">Según vuelo</button>
+        </div>
+        <div class="tce-ta-hint">${this.escape(taTypeLabel(type))}${
+          type === 'internacional' && this.getEffectiveTrm() > 0
+            ? ` · ${this.taConfig.internacionalUsd} USD × TRM ${Math.round(this.getEffectiveTrm()).toLocaleString('es-CO')} (día+sup.)`
+            : ''
+        }</div>
+      </div>
+    `;
+
+    return feeRows + taBlock;
   }
 
   private renderTotals(): string {
     const subtotals = this.getTotalsByCurrency();
     const feesTotal = this.getFeesTotal();
-    const primaryCurrency = this.getPrimaryCurrency(subtotals);
-    const mayorValor = this.fees[MAYOR_VALOR_ID] || 0;
-    const redondeo = this.fees[REDONDEO_ID] || 0;
-
-    const excessHtml = `
-      <div class="tce-rounding-row">
-        <div class="tce-rounding-excess">
-          Redondeo:
-          <strong>${this.escape(this.formatPrice(primaryCurrency || '', redondeo))}</strong>
-        </div>
-        <button type="button" class="tce-round-btn" data-action="round" title="Calcula el excedente hasta la siguiente decena de mil y lo guarda en Redondeo (no toca Mayor valor cobrado)">
-          Redondear
-        </button>
-      </div>
-    `;
+    const primaryCurrency = this.getPrimaryCurrency(subtotals) || this.displayCurrency;
+    const mayorValor = this.copAmountToDisplay(this.fees[MAYOR_VALOR_ID] || 0);
+    const redondeo = this.copAmountToDisplay(this.fees[REDONDEO_ID] || 0);
+    const taTotal = this.copAmountToDisplay(this.getTaTotal());
+    const taPax = this.getTaPaxCount();
+    const paxForRate = Math.max(1, taPax);
 
     const breakdownRows: string[] = [];
+    const eff = this.getEffectiveTrm();
+    const needsFx = this.items.some(
+      (item) => this.getItemPrice(item).currency.toUpperCase() !== this.displayCurrency
+    );
+    if (needsFx && eff > 0) {
+      breakdownRows.push(`
+        <div class="tce-total-row tce-total-row--sub">
+          <span>TRM usada (día + suplemento)</span>
+          <span>${Math.round(this.trmRate).toLocaleString('es-CO')} + ${Math.round(this.trmSuplemento).toLocaleString('es-CO')} = ${Math.round(eff).toLocaleString('es-CO')}</span>
+        </div>
+      `);
+    }
+    breakdownRows.push(`
+      <div class="tce-total-row tce-total-row--sub">
+        <span>Vista de montos</span>
+        <span>Todo en ${this.displayCurrency}</span>
+      </div>
+    `);
     for (const [currency, value] of subtotals) {
       breakdownRows.push(`
         <div class="tce-total-row tce-total-row--sub">
@@ -1219,37 +2971,70 @@ export class CartSidebar {
         </div>
       `);
     }
-    if (redondeo > 0) {
+    if (taTotal > 0) {
       breakdownRows.push(`
         <div class="tce-total-row tce-total-row--sub">
-          <span>Redondeo</span>
-          <span>${this.escape(this.formatPrice(primaryCurrency, redondeo))}</span>
+          <span>TA × ${taPax} pax</span>
+          <span>${this.escape(this.formatPrice(primaryCurrency, taTotal))}</span>
         </div>
       `);
     }
 
-    const showBreakdown = feesTotal > 0;
-    const subtotalHtml = showBreakdown ? breakdownRows.join('') : '';
+    const totalRows = Array.from(subtotals.entries()).map(([currency, value]) => {
+      const total = currency === primaryCurrency ? value + feesTotal : value;
+      const perPerson =
+        this.displayCurrency === 'USD'
+          ? Math.round((total / paxForRate) * 100) / 100
+          : Math.round(total / paxForRate);
+      return { currency, total, perPerson };
+    });
 
-    const totalHtml = Array.from(subtotals.entries())
-      .map(([currency, value]) => {
-        const total = currency === primaryCurrency ? value + feesTotal : value;
-        return `
+    const compareOptions = this.getHotelCompareOptions();
+    const compareMode = compareOptions.length >= 2;
+
+    const perPersonHtml = compareMode
+      ? ''
+      : totalRows
+          .map(
+            ({ currency, perPerson }) => `
+        <div class="tce-total-row tce-total-row--sub">
+          <span>Valor por pasajero${totalRows.length > 1 ? ` (${this.escape(currency)})` : ''}</span>
+          <span>${this.escape(this.formatPrice(currency, perPerson))}</span>
+        </div>`
+          )
+          .join('');
+
+    const roundLabel = this.displayCurrency === 'USD' ? 'decena de USD' : 'decena de mil';
+    const roundingHtml = `
+      <div class="tce-rounding-row">
+        <div class="tce-rounding-excess">
+          Redondeo:
+          <strong>${this.escape(this.formatPrice(primaryCurrency || '', redondeo))}</strong>
+        </div>
+        <button type="button" class="tce-round-btn" data-action="round" title="Calcula el excedente hasta la siguiente ${roundLabel} y lo guarda en Redondeo (no toca Mayor valor cobrado)">
+          Redondear
+        </button>
+      </div>
+    `;
+
+    const totalHtml = compareMode
+      ? this.renderHotelCompareBlock()
+      : totalRows
+          .map(
+            ({ currency, total }) => `
           <div class="tce-total-row">
-            <span>Total ${this.escape(currency)}</span>
+            <span>Total ${this.escape(currency)} (${paxForRate} pax)</span>
             <span>${this.escape(this.formatPrice(currency, total))}</span>
-          </div>
-        `;
-      })
-      .join('');
+          </div>`
+          )
+          .join('');
 
-    return excessHtml + subtotalHtml + totalHtml;
+    return breakdownRows.join('') + perPersonHtml + roundingHtml + totalHtml;
   }
 
   /**
-   * Rounds (items + mayor valor cobrado) up to the next 10.000 and stores
-   * the difference in "Redondeo". Does not modify "Mayor valor cobrado".
-   * Example: items 1.950.000 + mayor 36.700 = 1.986.700 → redondeo 3.300 → total 1.990.000.
+   * Rounds (items + mayor valor cobrado + TA) up to the next round unit
+   * in the active display currency and stores Redondeo (as COP internally).
    */
   private async applyRounding(): Promise<void> {
     const subtotals = this.getTotalsByCurrency();
@@ -1257,28 +3042,105 @@ export class CartSidebar {
 
     const primaryCurrency = this.getPrimaryCurrency(subtotals);
     const itemsTotal = subtotals.get(primaryCurrency) || 0;
-    const mayorValor = this.fees[MAYOR_VALOR_ID] || 0;
-    const base = itemsTotal + mayorValor;
-    const ROUND_UNIT = 10_000;
+    const mayorValor = this.copAmountToDisplay(this.fees[MAYOR_VALOR_ID] || 0);
+    const taTotal = this.copAmountToDisplay(this.getTaTotal());
+    const base = itemsTotal + mayorValor + taTotal;
+    const ROUND_UNIT = this.roundUnit();
     const rounded = Math.ceil(base / ROUND_UNIT) * ROUND_UNIT;
-    const excess = Math.max(0, rounded - base);
+    const excessDisplay = Math.max(0, rounded - base);
 
-    this.fees[REDONDEO_ID] = excess;
+    this.fees[REDONDEO_ID] = this.displayAmountToCop(excessDisplay);
     await this.saveFees();
 
     const feeInput = this.shadow.querySelector(
       `#tce-fee-${REDONDEO_ID}`
     ) as HTMLInputElement | null;
-    if (feeInput) feeInput.value = String(excess);
+    if (feeInput) feeInput.value = String(excessDisplay);
 
     const feesEl = this.shadow.querySelector('.tce-fees');
     if (feesEl) feesEl.innerHTML = this.renderFees();
     const totalsEl = this.shadow.querySelector('.tce-totals');
     if (totalsEl) totalsEl.innerHTML = this.renderTotals();
-    if (this.quoteOpen) this.showQuotePreview();
+  }
+
+  /**
+   * Rounds this item (base + mayor valor) up to the next round unit
+   * in the active display currency; stores redondeo as COP.
+   */
+  private async applyItemRounding(itemId: string): Promise<void> {
+    const item = this.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const base = this.getItemBasePrice(item);
+    const mayorValor = this.getItemAdjustmentsDisplay(item).mayorValor;
+    const beforeRound = base.price + mayorValor;
+    const ROUND_UNIT = this.roundUnit();
+    const rounded = Math.ceil(beforeRound / ROUND_UNIT) * ROUND_UNIT;
+    const excessDisplay = Math.max(0, rounded - beforeRound);
+
+    this.items = this.items.map((i) =>
+      i.id === itemId ? { ...i, redondeo: this.displayAmountToCop(excessDisplay) } : i
+    );
+    await this.saveToStorage();
+    this.refreshItemAdjUi(itemId);
+  }
+
+  private refreshItemAdjUi(itemId: string): void {
+    const lineItem = this.items.find((i) => i.id === itemId);
+    if (!lineItem) return;
+    const adj = this.getItemAdjustmentsDisplay(lineItem);
+    const line = this.getItemLineTotal(lineItem);
+    const label = this.formatPrice(line.currency, line.price);
+
+    const redondeoInput = this.shadow.querySelector(
+      `#tce-item-redondeo-${CSS.escape(itemId)}`
+    ) as HTMLInputElement | null;
+    if (redondeoInput) redondeoInput.value = String(adj.redondeo);
+
+    const totalEl = this.shadow.querySelector(
+      `.tce-item-line-total[data-item-id="${CSS.escape(itemId)}"]`
+    );
+    if (totalEl) {
+      totalEl.innerHTML = `Total ítem: <strong>${this.escape(label)}</strong>`;
+    }
+    const priceEl = this.shadow.querySelector(
+      `.tce-item[data-id="${CSS.escape(itemId)}"] .tce-item-price`
+    );
+    if (priceEl) priceEl.textContent = label;
+
+    const totalsEl = this.shadow.querySelector('.tce-totals');
+    if (totalsEl) totalsEl.innerHTML = this.renderTotals();
   }
 
   private bindEvents(root: HTMLElement): void {
+    root.addEventListener('focusin', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t?.classList?.contains('tce-fee-input') ||
+        t?.classList?.contains('tce-trm-input') ||
+        t?.classList?.contains('tce-ta-unit') ||
+        t?.classList?.contains('tce-item-adj-input') ||
+        t?.classList?.contains('tce-client-input')
+      ) {
+        this.suppressNumberFieldRerender = true;
+      }
+    });
+    root.addEventListener('focusout', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t?.classList?.contains('tce-fee-input') ||
+        t?.classList?.contains('tce-trm-input') ||
+        t?.classList?.contains('tce-ta-unit') ||
+        t?.classList?.contains('tce-item-adj-input') ||
+        t?.classList?.contains('tce-client-input')
+      ) {
+        // Defer so storage.onChanged from the last keystroke still sees the flag.
+        window.setTimeout(() => {
+          this.suppressNumberFieldRerender = false;
+        }, 0);
+      }
+    });
+
     root.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest('[data-action]') as HTMLElement | null;
       if (!target) return;
@@ -1286,16 +3148,47 @@ export class CartSidebar {
       const action = target.dataset.action;
       if (action === 'toggle') {
         this.toggle();
+      } else if (action === 'toggle-width') {
+        this.togglePanelWidth();
       } else if (action === 'remove') {
         this.removeItem(target.dataset.id!);
+      } else if (action === 'toggle-item') {
+        const id = target.dataset.id;
+        if (id) this.toggleItemExpand(id);
       } else if (action === 'clear') {
         this.clearCart();
       } else if (action === 'round') {
         void this.applyRounding();
-      } else if (action === 'toggle-quote') {
-        this.quoteOpen = !this.quoteOpen;
-        this.quoteCopyStatus = 'idle';
+      } else if (action === 'round-item') {
+        const id = target.dataset.id;
+        if (id) void this.applyItemRounding(id);
+      } else if (action === 'display-currency') {
+        const next = normalizeDisplayCurrency(target.dataset.currency);
+        if (next === this.displayCurrency) return;
+        if (!this.canUseDisplayCurrency(next)) return;
+        this.displayCurrency = next;
+        void saveDisplayCurrency(next);
         this.render();
+      } else if (action === 'ta-from-flight') {
+        this.syncTaFromFlightIfPresent();
+        const feesEl = this.shadow.querySelector('.tce-fees');
+        if (feesEl) feesEl.innerHTML = this.renderFees();
+        const totalsEl = this.shadow.querySelector('.tce-totals');
+        if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+      } else if (action === 'panel-tab') {
+        const next = target.dataset.tab as
+          | 'items'
+          | 'total'
+          | 'whatsapp'
+          | 'history'
+          | undefined;
+        if (next && next !== this.panelTab) {
+          this.panelTab = next;
+          this.quoteCopyStatus = 'idle';
+          this.render();
+        }
+      } else if (action === 'refresh-trm') {
+        void this.refreshTrmFromApi();
       } else if (action === 'copy-quote') {
         void this.copyQuoteToClipboard();
       } else if (action === 'preview-quote') {
@@ -1305,7 +3198,33 @@ export class CartSidebar {
 
     root.addEventListener('change', (e) => {
       const target = e.target as HTMLElement | null;
-      if (!target || !target.classList.contains('tce-quote-check')) return;
+      if (!target) return;
+
+      if (target.classList.contains('tce-ta-type')) {
+        const type = (target as HTMLSelectElement).value as TaType;
+        this.applyTaType(type, true);
+        const feesEl = this.shadow.querySelector('.tce-fees');
+        if (feesEl) feesEl.innerHTML = this.renderFees();
+        const totalsEl = this.shadow.querySelector('.tce-totals');
+        if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+        return;
+      }
+
+      if (target.classList.contains('tce-usd-equiv-check')) {
+        this.includeUsdEquiv = (target as HTMLInputElement).checked;
+        void saveIncludeUsdEquiv(this.includeUsdEquiv);
+        this.showQuotePreview();
+        return;
+      }
+
+      if (target.classList.contains('tce-hotels-as-options')) {
+        this.hotelsAsOptions = (target as HTMLInputElement).checked;
+        void saveHotelsAsOptions(this.hotelsAsOptions);
+        this.render();
+        return;
+      }
+
+      if (!target.classList.contains('tce-quote-check')) return;
       const input = target as HTMLInputElement;
       const lineId = input.dataset.lineId;
       if (!lineId) return;
@@ -1314,20 +3233,119 @@ export class CartSidebar {
 
     root.addEventListener('input', (e) => {
       const target = e.target as HTMLElement | null;
-      if (!target || !target.classList.contains('tce-fee-input')) return;
+      if (!target) return;
+
+      if (target.classList.contains('tce-client-input')) {
+        this.clientName = (target as HTMLInputElement).value;
+        void saveClientName(this.clientName);
+        return;
+      }
+
+      if (target.classList.contains('tce-trm-input')) {
+        const input = target as HTMLInputElement;
+        const parsed = parseFloat(input.value);
+        this.trmRate = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        if (this.trmRate > 0) {
+          const state: TrmState = {
+            rate: this.trmRate,
+            date: todayIso(),
+            source: 'manual',
+            updatedAt: Date.now(),
+          };
+          void saveTrm(state);
+          if (this.taSelection.type === 'internacional') {
+            this.taSelection = {
+              ...this.taSelection,
+              unitCop: resolveTaUnitCop(this.taConfig, 'internacional', this.getEffectiveTrm()),
+            };
+            void saveTaSelection(this.taSelection);
+            const unitEl = this.shadow.querySelector('#tce-ta-unit') as HTMLInputElement | null;
+            if (unitEl && this.panelTab === 'total') {
+              unitEl.value = String(this.copAmountToDisplay(this.taSelection.unitCop));
+            }
+            const totalsEl = this.shadow.querySelector('.tce-totals');
+            if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+          }
+        } else if (this.displayCurrency === 'USD') {
+          this.displayCurrency = 'COP';
+          void saveDisplayCurrency('COP');
+          this.render();
+        }
+        return;
+      }
+
+      if (target.classList.contains('tce-ta-unit')) {
+        const input = target as HTMLInputElement;
+        const parsed = parseFloat(input.value);
+        const displayVal = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+        this.taSelection = {
+          ...this.taSelection,
+          unitCop: this.displayAmountToCop(displayVal),
+        };
+        void saveTaSelection(this.taSelection);
+        const totalsEl = this.shadow.querySelector('.tce-totals');
+        if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+        const summary = this.shadow.querySelector('.tce-ta-summary');
+        if (summary) {
+          const pax = this.getTaPaxCount();
+          const primaryCurrency = this.displayCurrency;
+          const taDisplay = this.copAmountToDisplay(this.getTaTotal());
+          summary.innerHTML = `
+            TA × ${pax} pasajero${pax !== 1 ? 's' : ''} =
+            <strong>${this.escape(this.formatPrice(primaryCurrency, taDisplay))}</strong>
+            <button type="button" class="tce-ta-suggest" data-action="ta-from-flight"
+              title="Sugerir tipo según el vuelo del carrito">Según vuelo</button>
+          `;
+        }
+        return;
+      }
+
+      if (target.classList.contains('tce-item-adj-input')) {
+        const input = target as HTMLInputElement;
+        const itemId = input.dataset.itemId;
+        const adj = input.dataset.adj as 'mayorValor' | 'redondeo' | undefined;
+        if (!itemId || (adj !== 'mayorValor' && adj !== 'redondeo')) return;
+        const parsed = parseFloat(input.value);
+        const displayVal = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+        const value = this.displayAmountToCop(displayVal);
+        this.items = this.items.map((item) =>
+          item.id === itemId ? { ...item, [adj]: value } : item
+        );
+        void this.saveToStorage();
+        const lineItem = this.items.find((i) => i.id === itemId);
+        if (lineItem) {
+          const line = this.getItemLineTotal(lineItem);
+          const label = this.formatPrice(line.currency, line.price);
+          const totalEl = this.shadow.querySelector(
+            `.tce-item-line-total[data-item-id="${CSS.escape(itemId)}"]`
+          );
+          if (totalEl) {
+            totalEl.innerHTML = `Total ítem: <strong>${this.escape(label)}</strong>`;
+          }
+          const priceEl = this.shadow.querySelector(
+            `.tce-item[data-id="${CSS.escape(itemId)}"] .tce-item-price`
+          );
+          if (priceEl) priceEl.textContent = label;
+        }
+        const totalsEl = this.shadow.querySelector('.tce-totals');
+        if (totalsEl) totalsEl.innerHTML = this.renderTotals();
+        return;
+      }
+
+      if (!target.classList.contains('tce-fee-input')) return;
 
       const input = target as HTMLInputElement;
       const feeId = input.dataset.feeId;
       if (!feeId) return;
 
       const parsed = parseFloat(input.value);
-      this.fees[feeId] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+      const displayVal = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+      this.fees[feeId] = this.displayAmountToCop(displayVal);
       void this.saveFees();
 
       // Update only the totals so the input keeps focus while typing.
       const totalsEl = this.shadow.querySelector('.tce-totals');
       if (totalsEl) totalsEl.innerHTML = this.renderTotals();
-      if (this.quoteOpen) this.showQuotePreview();
     });
   }
 }

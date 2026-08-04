@@ -21,8 +21,14 @@ export class BookingMotorJSReader extends JSDataReader<HotelSearchContext> {
         let childrenAges: number[] = [];
         
         if (Array.isArray(r.childrenages)) {
+          // BM sends either numbers/strings or `{ age: "10" }` objects.
           childrenAges = r.childrenages
-            .map((age: any) => parseInt(age, 10))
+            .map((entry: unknown) => {
+              if (entry != null && typeof entry === 'object' && 'age' in entry) {
+                return parseInt(String((entry as { age: unknown }).age), 10);
+              }
+              return parseInt(String(entry), 10);
+            })
             .filter((age: number) => !isNaN(age));
         }
 
