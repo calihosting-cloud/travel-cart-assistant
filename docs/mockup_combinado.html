@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparativa de Opciones Combinadas</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --success: #10b981;
+            --border-color: #e5e7eb;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: #111827;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        /* Shared Services Section */
+        .shared-services {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 3rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            display: flex;
+            gap: 2rem;
+            justify-content: space-around;
+            flex-wrap: wrap;
+        }
+
+        .service-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .service-icon {
+            width: 48px;
+            height: 48px;
+            background: #eff6ff;
+            color: var(--primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .service-details h3 {
+            margin: 0 0 0.25rem 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .service-details p {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        /* Options Comparison */
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 2rem;
+        }
+
+        .option-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .option-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            border-color: #bfdbfe;
+        }
+
+        .option-card.recommended {
+            border-color: var(--primary);
+            position: relative;
+        }
+
+        .recommended-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--primary);
+            color: white;
+            padding: 0.25rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .option-header {
+            padding: 2rem;
+            border-bottom: 1px solid var(--border-color);
+            background: #fafafa;
+        }
+
+        .option-header h2 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.5rem;
+            color: #111827;
+        }
+
+        .price-breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .price-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .price-total {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .price-per-person {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .option-body {
+            padding: 2rem;
+        }
+
+        .hotel-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .hotel-item {
+            display: flex;
+            gap: 1rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px dashed var(--border-color);
+        }
+
+        .hotel-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .hotel-image {
+            width: 100px;
+            height: 100px;
+            border-radius: 12px;
+            object-fit: cover;
+            background: #e5e7eb;
+        }
+
+        .hotel-info {
+            flex: 1;
+        }
+
+        .hotel-info h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.1rem;
+        }
+
+        .hotel-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .badge {
+            background: #f3f4f6;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .btn-select {
+            display: block;
+            width: 100%;
+            padding: 1rem;
+            text-align: center;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            border-radius: 10px;
+            margin-top: 2rem;
+            transition: background 0.3s;
+            border: none;
+            cursor: pointer;
+            font-size: 1.1rem;
+        }
+
+        .btn-select:hover {
+            background: var(--primary-hover);
+        }
+
+        /* SVG Icons Inline for simplicity */
+        .icon {
+            width: 24px;
+            height: 24px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        @media (max-width: 768px) {
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+            .shared-services {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Tu Viaje a Cancún y Riviera Maya</h1>
+        <p>2 Adultos • 5 Noches • Servicios compartidos incluidos</p>
+    </div>
+
+    <!-- Shared Services -->
+    <div class="shared-services">
+        <div class="service-item">
+            <div class="service-icon">✈️</div>
+            <div class="service-details">
+                <h3>Vuelos Redondos</h3>
+                <p>Avianca - Equipaje de mano incluido</p>
+            </div>
+        </div>
+        <div class="service-item">
+            <div class="service-icon">🚌</div>
+            <div class="service-details">
+                <h3>Traslados</h3>
+                <p>Aeropuerto - Hotel A - Hotel B - Aeropuerto</p>
+            </div>
+        </div>
+        <div class="service-item">
+            <div class="service-icon">🛡️</div>
+            <div class="service-details">
+                <h3>Seguro de Viaje</h3>
+                <p>Asistencia Plus (Cobertura Total)</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Options Grid -->
+    <div class="options-grid">
+        
+        <!-- Option 1 -->
+        <div class="option-card recommended">
+            <div class="recommended-badge">Más Elegido</div>
+            <div class="option-header">
+                <h2>Opción 1: Aventura y Relax</h2>
+                
+                <div class="price-breakdown">
+                    <div class="price-item">
+                        <span class="price-total">$2,450 USD</span>
+                        <span style="font-weight: 600; color: var(--text-main)">Total (2 Personas)</span>
+                    </div>
+                    <div class="price-item">
+                        <span class="price-per-person">$1,225 USD por persona</span>
+                        <span class="price-per-person">Incluye hoteles + servicios</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="option-body">
+                <div class="hotel-list">
+                    <div class="hotel-item">
+                        <img src="https://images.unsplash.com/photo-1566073771259-6a8506099945?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&q=80" alt="Hotel Cancún" class="hotel-image">
+                        <div class="hotel-info">
+                            <span class="badge">Primeras 2 Noches</span>
+                            <h4>Hotel Krystal Grand Cancún</h4>
+                            <div class="hotel-meta">
+                                <span>⭐⭐⭐⭐</span> • <span>Todo Incluido</span>
+                            </div>
+                            <p style="margin: 0; font-size: 0.875rem; color: var(--text-muted);">Habitación Standard Ocean View</p>
+                        </div>
+                    </div>
+                    
+                    <div class="hotel-item">
+                        <img src="https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&q=80" alt="Hotel Riviera Maya" class="hotel-image">
+                        <div class="hotel-info">
+                            <span class="badge">Siguientes 3 Noches</span>
+                            <h4>Occidental at Xcaret Destination</h4>
+                            <div class="hotel-meta">
+                                <span>⭐⭐⭐⭐⭐</span> • <span>Todo Incluido</span>
+                            </div>
+                            <p style="margin: 0; font-size: 0.875rem; color: var(--text-muted);">Habitación Deluxe Unlimited Xcaret</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <button class="btn-select">Seleccionar Opción 1</button>
+            </div>
+        </div>
+
+        <!-- Option 2 -->
+        <div class="option-card">
+            <div class="option-header">
+                <h2>Opción 2: Lujo Exclusivo</h2>
+                
+                <div class="price-breakdown">
+                    <div class="price-item">
+                        <span class="price-total">$3,100 USD</span>
+                        <span style="font-weight: 600; color: var(--text-main)">Total (2 Personas)</span>
+                    </div>
+                    <div class="price-item">
+                        <span class="price-per-person">$1,550 USD por persona</span>
+                        <span class="price-per-person">Incluye hoteles + servicios</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="option-body">
+                <div class="hotel-list">
+                    <div class="hotel-item">
+                        <img src="https://images.unsplash.com/photo-1542314831-c6a420325142?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&q=80" alt="Hotel Cancún Lujo" class="hotel-image">
+                        <div class="hotel-info">
+                            <span class="badge">Primeras 2 Noches</span>
+                            <h4>Hard Rock Hotel Cancún</h4>
+                            <div class="hotel-meta">
+                                <span>⭐⭐⭐⭐⭐</span> • <span>Todo Incluido</span>
+                            </div>
+                            <p style="margin: 0; font-size: 0.875rem; color: var(--text-muted);">Rock Royalty Partial Ocean View</p>
+                        </div>
+                    </div>
+                    
+                    <div class="hotel-item">
+                        <img src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&q=80" alt="Hotel Playa del Carmen" class="hotel-image">
+                        <div class="hotel-info">
+                            <span class="badge">Siguientes 3 Noches</span>
+                            <h4>Hotel Xcaret Arte</h4>
+                            <div class="hotel-meta">
+                                <span>⭐⭐⭐⭐⭐</span> • <span>Todo Incluido + Parques</span>
+                            </div>
+                            <p style="margin: 0; font-size: 0.875rem; color: var(--text-muted);">Suite River Adults Only</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <button class="btn-select">Seleccionar Opción 2</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+</body>
+</html>
