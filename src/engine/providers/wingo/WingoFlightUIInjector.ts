@@ -1,16 +1,32 @@
 /**
- * Cart button on Wingo search / "Vuelos" step.
- * Mounted next to the purchase summary Total (`w-mo-total-purchase`).
+ * Cart button on Wingo — only when the purchase Total bar is present
+ * (passengers / payment). Never use a fixed overlay on the search form.
  */
 export class WingoFlightUIInjector {
   private static readonly BTN_ID = 'tce-wingo-add-flight';
   private static readonly STYLE_ID = 'tce-wingo-add-flight-style';
   private static readonly HOST_ATTR = 'data-tce-wingo-host';
 
+  /** True on passengers/payment or whenever the sticky Total bar exists. */
+  static canShow(doc: Document): boolean {
+    const href = doc.location?.href || '';
+    if (/\/booking\/(passengers|payment|checkout|confirm|pay)/i.test(href)) return true;
+    return !!(
+      doc.querySelector('w-mo-total-purchase') ||
+      doc.querySelector('w-org-summary-detail-to-pay') ||
+      doc.querySelector('w-org-summary-detail-purchase')
+    );
+  }
+
   injectButton(doc: Document, onAdd: () => void | Promise<void>): void {
     if (!doc.body) return;
 
     this.ensureStyles(doc);
+
+    if (!WingoFlightUIInjector.canShow(doc) || !this.findTotalPurchase(doc)) {
+      this.removeButton(doc);
+      return;
+    }
 
     const existing = doc.getElementById(WingoFlightUIInjector.BTN_ID) as HTMLButtonElement | null;
     if (existing) {
@@ -41,7 +57,16 @@ export class WingoFlightUIInjector {
     });
 
     this.mount(doc, btn);
-    console.log('[TCE] Wingo cart button mounted next to Total summary.');
+    if (doc.getElementById(WingoFlightUIInjector.BTN_ID)) {
+      console.log('[TCE] Wingo cart button mounted next to Total summary.');
+    }
+  }
+
+  private removeButton(doc: Document): void {
+    doc.getElementById(WingoFlightUIInjector.BTN_ID)?.remove();
+    doc.querySelectorAll(`[${WingoFlightUIInjector.HOST_ATTR}]`).forEach((el) => {
+      el.removeAttribute(WingoFlightUIInjector.HOST_ATTR);
+    });
   }
 
   private isInPreferredHost(btn: HTMLElement): boolean {
@@ -62,7 +87,7 @@ export class WingoFlightUIInjector {
     );
     for (const el of candidates) {
       const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!/^Total:\s*\$/i.test(text) && !/Total:\s*\$\s*[\d.,]+\s*COP/i.test(text)) {
+      if (!/^Total:\s*\$/i.test(text) && !/Total:\s*\$\s*[\d.,]+\s*(COP|USD)/i.test(text)) {
         continue;
       }
       // Prefer a compact node that looks like the sticky total bar.
@@ -82,31 +107,30 @@ export class WingoFlightUIInjector {
     });
 
     const totalPurchase = this.findTotalPurchase(doc);
-    if (totalPurchase) {
-      const host =
-        totalPurchase.closest('w-org-summary-detail-purchase') ||
-        totalPurchase.parentElement ||
-        totalPurchase;
-
-      host.setAttribute(WingoFlightUIInjector.HOST_ATTR, '1');
-      btn.className = 'tce-wingo-btn tce-wingo-btn--by-total';
-
-      // Sit immediately above the Total bar in the purchase summary.
-      const anchor =
-        host.querySelector('w-mo-total-purchase') ||
-        (totalPurchase.matches('w-mo-total-purchase') ? totalPurchase : null) ||
-        totalPurchase;
-
-      if (anchor.parentElement) {
-        anchor.parentElement.insertBefore(btn, anchor);
-      } else {
-        host.insertBefore(btn, host.firstChild);
-      }
+    if (!totalPurchase) {
+      btn.remove();
       return;
     }
 
-    btn.className = 'tce-wingo-btn tce-wingo-btn--fixed';
-    doc.documentElement.appendChild(btn);
+    const host =
+      totalPurchase.closest('w-org-summary-detail-purchase') ||
+      totalPurchase.parentElement ||
+      totalPurchase;
+
+    host.setAttribute(WingoFlightUIInjector.HOST_ATTR, '1');
+    btn.className = 'tce-wingo-btn tce-wingo-btn--by-total';
+
+    // Sit immediately above the Total bar in the purchase summary.
+    const anchor =
+      host.querySelector('w-mo-total-purchase') ||
+      (totalPurchase.matches('w-mo-total-purchase') ? totalPurchase : null) ||
+      totalPurchase;
+
+    if (anchor.parentElement) {
+      anchor.parentElement.insertBefore(btn, anchor);
+    } else {
+      host.insertBefore(btn, host.firstChild);
+    }
   }
 
   private ensureStyles(doc: Document): void {
@@ -140,13 +164,6 @@ export class WingoFlightUIInjector {
         box-sizing: border-box !important;
         margin: 0 0 8px 0 !important;
         border-radius: 10px !important;
-      }
-      .tce-wingo-btn--fixed {
-        position: fixed !important;
-        top: 260px !important;
-        left: 16px !important;
-        right: auto !important;
-        bottom: auto !important;
       }
     `;
     (doc.head || doc.documentElement).appendChild(style);

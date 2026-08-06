@@ -12,6 +12,26 @@ Formato por entrada:
 
 ---
 
+## 2026-08-06 — Wingo, guía de viaje y opciones multi-hotel (v1.0.34)
+
+- **Added**: Comparar hoteles con varias opciones (columnas + **Nueva opción**); un hotel puede ir en más de una; total también visible sin comparar.
+- **Added**: **Guía del viaje** (`tce_trip_guide`): la primera búsqueda aérea fija fechas/pax/ruta en el encabezado; hotel solo encabeza hasta que haya vuelo.
+- **Fixed**: hotel → traslado conserva check-out e abre en Ida y vuelta; aviso de precarga con ida/vuelta y pax.
+- **Fixed**: Wingo lee niño (`Niño` / `w-kid-form`), ruta/fechas en pasajeros, y `$495.39 USD` sin inflar a miles; montos sin centavos.
+- **Changed**: botón Wingo solo junto al Total en pasajeros/pago (no tapa la búsqueda).
+- **Docs**: `docs/CONTEXT.md` — trip guide, opciones multi-hotel, sync BM.
+
+## 2026-08-06 — Fixtures HTML en `html/`
+
+- **Changed**: páginas de ejemplo (Avianca, Wingo, BookingMotor, etc.) movidas de la raíz a `html/` para ordenar el repo; scripts `scratch/` y `scraper/` y docs actualizados a las nuevas rutas.
+
+## 2026-08-04 — Tablero de evolución (TODO)
+
+- **Docs**: `docs/TODO.md` — fases y tareas del asistente de cotización (UI, API/Postgres, login opcional, admin, PDF, reglas, tool de proveedores); se marca avance ahí.
+- **Docs**: Fase 1 — dual surface: lateral ampliado (captura) + panel en otra pestaña (Total / WhatsApp / Historial cómodos).
+- **Docs**: Fase 1C — dashboard de stats en el panel (hoy/ayer/semana/mes; local primero, cloud después).
+- **Docs**: mockup del panel fullscreen en `scratch/asistente-panel-mockup.html` (datos ficticios).
+
 ## 2026-07-31 — Comparar hoteles y ocupación por habitación (v1.0.33)
 
 - **Changed**: el toggle «Hoteles por opción» pasa a llamarse **Comparar hoteles**.

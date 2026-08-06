@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Travel Cart Assistant GT",
-  "version": "1.0.33",
+  "version": "1.0.34",
   "description": "Carrito GT — BookingMotor, Despegar, XNet, Avianca, Wingo, JetSMART",
   "permissions": [
     "storage",

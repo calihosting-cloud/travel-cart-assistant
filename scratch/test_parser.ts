@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
 import { BookingMotorExtractor } from '../src/engine/providers/bookingmotor/BookingMotorExtractor';
@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 1. Read HTML file
-const htmlPath = path.resolve(__dirname, '../ejemplobusqueda.html');
+const htmlPath = path.resolve(__dirname, '../html/ejemplobusqueda.html');
 const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
 // 2. Extract JSON data string using regex

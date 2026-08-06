@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Reproduce the missing-button bug against pararevisar.html and verify the fix.
  * Usage: npx tsx scratch/test_xnet_button_inject.ts
  */
@@ -8,9 +8,9 @@ import { JSDOM } from 'jsdom';
 import { XNetFlightReader, getActiveRatePanel } from '../src/engine/providers/xnet/XNetFlightReader';
 import { XNetFlightUIInjector } from '../src/engine/providers/xnet/XNetFlightUIInjector';
 
-const fixture = path.resolve('pararevisar.html');
+const fixture = path.resolve('html/pararevisar.html');
 if (!fs.existsSync(fixture)) {
-  console.error('Missing pararevisar.html');
+  console.error('Missing html/pararevisar.html');
   process.exit(1);
 }
 

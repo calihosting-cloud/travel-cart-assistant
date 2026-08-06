@@ -1,15 +1,15 @@
-/**
+﻿/**
  * Offline analysis of a saved Avianca booking HTML (Angular IBE).
  * Extracts structure hints for a future CartReader — no browser needed.
  *
- *   npx tsx scraper/analyzeAviancaFixture.ts [path/to/Avianca.html]
+ *   npx tsx scraper/analyzeAviancaFixture.ts [html/Avianca.html]
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { CAPTURES_DIR, ensureDir, timestampSlug } from './paths.js';
 
-const fixturePath = path.resolve(process.argv[2] || 'Avianca.html');
+const fixturePath = path.resolve(process.argv[2] || 'html/Avianca.html');
 
 function main(): void {
   if (!fs.existsSync(fixturePath)) {

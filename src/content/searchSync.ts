@@ -6,6 +6,7 @@ import {
 
 const STORAGE_KEY = 'tce_last_search';
 const PREFILLED_ATTR = 'data-tce-prefilled';
+const CHECKOUT_WATCH_ATTR = 'data-tce-checkout-watch';
 const CAPTURE_DEBOUNCE_MS = 500;
 const CONTEXT_TTL_MS = 1000 * 60 * 60 * 12; // ignore contexts older than 12h
 
@@ -147,6 +148,13 @@ export class SearchSyncController {
       form.setAttribute(PREFILLED_ATTR, '1');
       if (changed) this.showBanner(form, type, this.context);
 
+      if (type === 'transfer' && this.context.checkOut) {
+        this.watchTransferCheckout(form, this.context.checkOut);
+        // BookingMotor may overwrite checkout = check-in + 1 after our apply.
+        const expectedCheckout = this.context.checkOut;
+        window.setTimeout(() => this.reapplyTransferCheckout(form, expectedCheckout), 50);
+      }
+
       // Age selects are rendered after the children count changes — fill on next tick.
       if (this.context.totalChildren > 0 || this.context.childrenAges.length > 0) {
         window.setTimeout(() => {
@@ -163,6 +171,46 @@ export class SearchSyncController {
       // Allow the site's own change handlers to run before re-enabling capture.
       window.setTimeout(() => {
         this.isApplying = false;
+      }, 0);
+    }
+  }
+
+  /**
+   * When the advisor switches Solo ida → Ida y vuelta, BookingMotor may call
+   * setCheckout() (check-in + 1). Re-apply the hotel check-out afterwards.
+   */
+  private watchTransferCheckout(form: HTMLFormElement, expectedCheckout: string): void {
+    if (form.getAttribute(CHECKOUT_WATCH_ATTR) === '1') return;
+    form.setAttribute(CHECKOUT_WATCH_ATTR, '1');
+
+    const reapply = (): void => {
+      const typeVal = form.querySelector<HTMLInputElement>(
+        'input[name="searchtransfer[type]"]:checked'
+      )?.value;
+      if (typeVal !== '2') return;
+      window.setTimeout(() => this.reapplyTransferCheckout(form, expectedCheckout), 50);
+    };
+
+    form.querySelectorAll<HTMLInputElement>('input[name="searchtransfer[type]"]').forEach((radio) => {
+      radio.addEventListener('change', reapply);
+    });
+    form.querySelectorAll('.types label').forEach((label) => {
+      label.addEventListener('click', reapply);
+    });
+  }
+
+  private reapplyTransferCheckout(form: HTMLFormElement, expectedCheckout: string): void {
+    const el = form.querySelector<HTMLInputElement>('[name="searchtransfer[checkout]"]');
+    if (!el || el.value.trim() === expectedCheckout) return;
+    const prev = this.isApplying;
+    this.isApplying = true;
+    try {
+      el.value = expectedCheckout;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } finally {
+      window.setTimeout(() => {
+        this.isApplying = prev;
       }, 0);
     }
   }
@@ -259,10 +307,21 @@ export class SearchSyncController {
 
     const pax: string[] = [];
     if (ctx.totalAdults > 0) pax.push(`${ctx.totalAdults} adulto${ctx.totalAdults !== 1 ? 's' : ''}`);
-    if (ctx.totalChildren > 0) pax.push(`${ctx.totalChildren} niño${ctx.totalChildren !== 1 ? 's' : ''}`);
+    if (ctx.totalChildren > 0) {
+      const ages =
+        ctx.childrenAges.length > 0 ? ` (${ctx.childrenAges.join(', ')})` : '';
+      pax.push(`${ctx.totalChildren} niño${ctx.totalChildren !== 1 ? 's' : ''}${ages}`);
+    }
 
     const bits: string[] = [];
-    if (ctx.checkIn) bits.push(`fecha ${ctx.checkIn}`);
+    if (ctx.checkIn && ctx.checkOut) {
+      bits.push(`ida ${ctx.checkIn}`);
+      bits.push(`vuelta ${ctx.checkOut}`);
+    } else if (ctx.checkIn) {
+      bits.push(`ida ${ctx.checkIn}`);
+    } else if (ctx.checkOut) {
+      bits.push(`vuelta ${ctx.checkOut}`);
+    }
     if (pax.length) bits.push(pax.join(', '));
 
     const note = doc.createElement('div');

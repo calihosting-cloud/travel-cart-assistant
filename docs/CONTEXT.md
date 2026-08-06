@@ -4,6 +4,8 @@ Este documento resume el estado del proyecto para que agentes de IA o desarrolla
 
 **Historial de cambios:** [CHANGELOG.md](./CHANGELOG.md) (añadir entrada en cada cambio relevante).
 
+**Roadmap / tareas:** [TODO.md](./TODO.md) — fases de evolución; marcar avances ahí.
+
 ## Objetivo
 
 Extensión Chrome MV3 que inyecta botones **+ 🛒** en páginas de resultados de BookingMotor, extrae datos estructurados de cada producto/tarifa, y los acumula en un carrito lateral persistente.
@@ -39,10 +41,12 @@ Travel Cart Assistant/
 │           ├── BookingMotorTransferJSReader.ts
 │           └── BookingMotorTransferUIInjector.ts
 ├── scratch/
-│   ├── test_parser.ts         # Test hoteles con ejemplobusqueda.html
+│   ├── test_parser.ts         # Test hoteles con html/ejemplobusqueda.html
 │   └── test_transfer_parser.ts
-├── ejemplobusqueda.html       # Fixture: hoteles
-├── traslados.html             # Fixture: traslados
+├── html/                      # Fixtures HTML guardados (páginas de ejemplo)
+│   ├── ejemplobusqueda.html   # Hoteles
+│   ├── traslados.html         # Traslados
+│   └── …                      # Avianca, Wingo, JetSmart, etc.
 └── dist/                      # Output del build (no commitear)
 ```
 
@@ -108,7 +112,8 @@ BookingMotor expone `let data = JSON.parse('...')` en el main world. El content 
 Página `/es/backoffice/book/new` ("Nueva Reserva"): al cambiar de pestaña (Hoteles → Traslados) los formularios están vacíos. `SearchSyncController` (`src/content/searchSync.ts`) resuelve esto:
 
 - **Captura**: escucha `change`/`input` en campos `searchhotel[...]`/`searchtransfer[...]` del formulario visible (debounce 500ms) y guarda un `SearchContext` en `chrome.storage.local` key `tce_last_search` (TTL 12h).
-- **Restaura**: al hacerse visible un formulario de otro tipo, vacío y sin `data-tce-prefilled`, precarga fechas, pasajeros, edades de niños y nacionalidad, y muestra un banner `.tce-prefill-note`.
+- **Restaura**: al hacerse visible un formulario de otro tipo, vacío y sin `data-tce-prefilled`, precarga fechas, pasajeros, edades de niños y nacionalidad, y muestra un banner `.tce-prefill-note` (ida/vuelta + adultos/niños/edades).
+- **Traslados**: si la búsqueda previa trae check-out (p. ej. hotel), se selecciona **Ida y vuelta**, se escribe el checkout del hotel y se reaplica tras el `setCheckout` de BookingMotor (check-in + 1 día).
 - **Lectura/escritura DOM**: `BookingMotorSearchFormSync` (`providers/bookingmotor/`). Detecta el formulario visible con `offsetParent`; los `<select>` numéricos (adultos/niños/habitaciones/noches) se ajustan (clamp) al máximo que ofrece la página; disparar `change` deja que el JS del sitio genere los sub-campos dinámicos (edades, habitaciones).
 
 **Limitación de diseño:** el destino (hotel/ciudad) NO se auto-escribe. Los traslados requieren IDs de `pickup`/`dropoff` que vienen del autocompletado del backend y no se pueden derivar del nombre del hotel. Se guarda solo como `destinationText` y se muestra como pista en el banner.
@@ -146,13 +151,19 @@ Botón: `btn btn-xs btn-info btn-tce-add-cart`, HTML `+ 🛒`, estilos inline co
 
 ## Carrito lateral (`CartSidebar`)
 
-- Shadow DOM cerrado, z-index alto, panel fijo 340px derecha.
+- Shadow DOM cerrado, z-index alto, panel fijo 340px derecha (ampliable a 560px; ~720px con Comparar hoteles).
+
+### Comparar hoteles (opciones combinadas)
+
+Toggle `tce_hotels_as_options`. Grupos en `tce_hotel_compare_groups`: cada grupo es una columna **Opción N** con `hotelIds[]` (un hotel puede estar en varias). Servicios no-hotel son compartidos. UI: chips en cada hotel + **Nueva opción**. WhatsApp lista hoteles por opción y un total/persona por opción.
 - Persistencia: `chrome.storage.local`:
   - `tce_cart_items` → productos del carrito.
-  - `tce_last_search` → `SearchContext` (compartido con `SearchSyncController`).
+  - `tce_last_search` → `SearchContext` hotel/transfer/activity/insurance (sync BM entre pestañas; no vuelos).
+  - `tce_trip_guide` → primera búsqueda **aérea** del viaje (fechas/pax/ruta); encabezado **Guía del viaje**. Hotel solo encabeza si aún no hay guía de vuelo. Vaciar carrito la borra.
   - `tce_fees` → valores de los fees (`Record<feeId, number>`).
   - `tce_client_name` → cliente de la cotización (historial; no WhatsApp).
   - `tce_pending_quote` / `tce_quote_seq` → número de cotización de la sesión (`CAR001`…).
+  - `tce_hotel_compare_groups` → columnas Opción N → `hotelIds[]` (Comparar hoteles).
 - **Pestañas internas** (con items): **Productos** · **Total** · **WhatsApp** · **Historial**.
 - **Encabezado:** resumen (origen desde vuelo si hay + destino/fechas/pax) y campo **CLIENTE:**.
 - Cada ítem puede tener `sourceUrl` (página al agregar) y un icono **↗** para reabrir esa búsqueda.
@@ -209,8 +220,8 @@ Pestaña **WhatsApp** del carrito:
 
 | Archivo | URL original | Productos en página 1 |
 |---------|--------------|----------------------|
-| `ejemplobusqueda.html` | `/list-hotel/...` | 10 hoteles, 46 botones (23 tarifas × desktop+mobile) |
-| `traslados.html` | `/list-transfer/...` | 10 traslados, 10 botones |
+| `html/ejemplobusqueda.html` | `/list-hotel/...` | 10 hoteles, 46 botones (23 tarifas × desktop+mobile) |
+| `html/traslados.html` | `/list-transfer/...` | 10 traslados, 10 botones |
 
 Tests extraen `let data = JSON.parse('...')` con regex y usan JSDOM.
 

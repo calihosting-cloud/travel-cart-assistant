@@ -54,7 +54,7 @@ El `.gitignore` excluye:
 - `.env`, `*.pem`
 - `ejemplobusqueda_files/`, `traslados_files/` (assets pesados de páginas guardadas)
 
-Sí se incluyen: código fuente, `ejemplobusqueda.html`, `traslados.html`, documentación.
+Sí se incluyen: código fuente, `html/ejemplobusqueda.html`, `html/traslados.html`, documentación.
 
 ## Después del push
 

@@ -26,8 +26,10 @@ export interface QuoteBuildInput {
   trm?: number;
   /** When true, append COP↔USD equivalent lines (default off). */
   includeUsdEquiv?: boolean;
-  /** Treat each hotel as an alternative combined with shared non-hotel services. */
+  /** Treat each option group as shared services + its hotels (multi-hotel per option). */
   hotelsAsOptions?: boolean;
+  /** Option columns when comparing; hotel ids may appear in more than one group. */
+  hotelOptionGroups?: Array<{ id: string; hotelIds: string[] }>;
   /** Final line totals (after currency conversion and item adjustments), by item id. */
   itemTotals?: Record<string, number>;
 }
@@ -309,6 +311,7 @@ export function buildWhatsAppQuote(input: QuoteBuildInput): string {
     trm,
     includeUsdEquiv = false,
     hotelsAsOptions = false,
+    hotelOptionGroups,
     itemTotals = {},
   } = input;
 
@@ -416,41 +419,85 @@ export function buildWhatsAppQuote(input: QuoteBuildInput): string {
       const sharedTotal = items
         .filter((item) => item.type !== 'hotel')
         .reduce((sum, item) => sum + (itemTotals[item.id] || 0), 0);
-      hotels.forEach((hotel, idx) => {
-        const label =
-          hotelsAsOptions || hotels.length > 1 ? `OPCIÓN ${idx + 1}` : optionLabel;
-        const rate = hotel.selectedRate;
-        if (hotelsAsOptions) lines.push(`*${label}*`);
-        lines.push(
-          `🏨*_Nombre Hotel:_* ${hotel.hotelName}${stars(hotel.stars)}`
-        );
-        if (rate.roomType) {
-          lines.push(`🛏️ *_Tipo de Habitación:_* ${rate.roomType}`);
-        }
-        if (hotel.occupancy.length > 0) {
-          lines.push(`👥 *_Ocupación:_* ${occupancyLabel(hotel)}`);
-        }
-        if (rate.boardBasis) {
-          lines.push(`🍴 *_Tipo de alimentación:_* ${rate.boardBasis}`);
-        }
-        lines.push('');
-        if (hotelsAsOptions) {
-          const optionTotal =
-            sharedTotal + (itemTotals[hotel.id] || 0) + (primaryCurrency ? feesTotal : 0);
+      const byId = new Map(hotels.map((h) => [h.id, h]));
+
+      const optionBlocks =
+        hotelsAsOptions && hotelOptionGroups && hotelOptionGroups.length > 0
+          ? hotelOptionGroups
+              .map((g, idx) => {
+                const groupHotels = g.hotelIds
+                  .map((id) => byId.get(id))
+                  .filter((h): h is HotelCartItem => !!h);
+                if (groupHotels.length === 0) return null;
+                return { index: idx + 1, hotels: groupHotels };
+              })
+              .filter((b): b is { index: number; hotels: HotelCartItem[] } => !!b)
+          : hotelsAsOptions
+            ? hotels.map((h, idx) => ({ index: idx + 1, hotels: [h] }))
+            : null;
+
+      if (optionBlocks) {
+        for (const block of optionBlocks) {
+          lines.push(`*OPCIÓN ${block.index}*`);
+          for (const hotel of block.hotels) {
+            const rate = hotel.selectedRate;
+            lines.push(
+              `🏨*_Nombre Hotel:_* ${hotel.hotelName}${stars(hotel.stars)}`
+            );
+            if (hotel.nights > 0) {
+              lines.push(
+                `🌙 *_Noches:_* ${hotel.nights} (${hotel.checkIn} → ${hotel.checkOut})`
+              );
+            }
+            if (rate.roomType) {
+              lines.push(`🛏️ *_Tipo de Habitación:_* ${rate.roomType}`);
+            }
+            if (hotel.occupancy.length > 0) {
+              lines.push(`👥 *_Ocupación:_* ${occupancyLabel(hotel)}`);
+            }
+            if (rate.boardBasis) {
+              lines.push(`🍴 *_Tipo de alimentación:_* ${rate.boardBasis}`);
+            }
+            lines.push('');
+          }
+          const hotelsSum = block.hotels.reduce(
+            (sum, h) => sum + (itemTotals[h.id] || 0),
+            0
+          );
+          const optionTotal = sharedTotal + hotelsSum + (primaryCurrency ? feesTotal : 0);
           const optionPerPerson = optionTotal / pax;
+          const occHint =
+            block.hotels.length === 1
+              ? occupancyLabel(block.hotels[0])
+              : formatPaxBreakdown(paxBreakdown);
           lines.push(
-            `👤 *Tarifa por persona en acomodación _${occupancyLabel(hotel)}_:*  ${formatMoney(moneyCurrency || rate.currency, optionPerPerson)}`
+            `👤 *Tarifa por persona en acomodación _${occHint}_:*  ${formatMoney(moneyCurrency, optionPerPerson)}`
           );
           lines.push(
-            `💰 *Total (${formatPaxBreakdown(paxBreakdown)}):*  ${formatMoney(moneyCurrency || rate.currency, optionTotal)}`
+            `💰 *Total (${formatPaxBreakdown(paxBreakdown)}):*  ${formatMoney(moneyCurrency, optionTotal)}`
           );
           if (includeUsdEquiv) {
-            appendMoneyEquiv(lines, moneyCurrency || rate.currency, optionTotal, trm);
+            appendMoneyEquiv(lines, moneyCurrency, optionTotal, trm);
           }
+          lines.push('');
         }
-        lines.push('');
-      });
-      if (!hotelsAsOptions) {
+      } else {
+        for (const hotel of hotels) {
+          const rate = hotel.selectedRate;
+          lines.push(
+            `🏨*_Nombre Hotel:_* ${hotel.hotelName}${stars(hotel.stars)}`
+          );
+          if (rate.roomType) {
+            lines.push(`🛏️ *_Tipo de Habitación:_* ${rate.roomType}`);
+          }
+          if (hotel.occupancy.length > 0) {
+            lines.push(`👥 *_Ocupación:_* ${occupancyLabel(hotel)}`);
+          }
+          if (rate.boardBasis) {
+            lines.push(`🍴 *_Tipo de alimentación:_* ${rate.boardBasis}`);
+          }
+          lines.push('');
+        }
         lines.push(
           `👤 *Tarifa por persona (${formatPaxBreakdown(paxBreakdown)}):*  ${formatMoney(moneyCurrency, perPerson)}`
         );

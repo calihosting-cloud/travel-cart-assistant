@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Avianca booking scraper (research / fixtures for the Chrome extension).
  *
  * Runs a full round-trip search and dumps HTML, screenshots and JSON API
@@ -248,9 +248,9 @@ async function trySubmitSearch(page: Page): Promise<boolean> {
  * even if the live site blocks automation.
  */
 function analyzeSavedFixture(outDir: string): void {
-  const fixture = path.resolve(process.cwd(), 'Avianca.html');
+  const fixture = path.resolve(process.cwd(), 'html', 'Avianca.html');
   if (!fs.existsSync(fixture)) {
-    console.log('[avianca] No hay Avianca.html en la raíz para análisis offline.');
+    console.log('[avianca] No hay html/Avianca.html para análisis offline.');
     return;
   }
   const html = fs.readFileSync(fixture, 'utf8');

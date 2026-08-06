@@ -1,11 +1,11 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const htmlPath = path.resolve(__dirname, '..', 'Despegar.html');
+const htmlPath = path.resolve(__dirname, '..', 'html', 'Despegar.html');
 const html = fs.readFileSync(htmlPath, 'utf8');
 
 // Anchor on the CheckoutModel object and brace-match from its opening '{'.

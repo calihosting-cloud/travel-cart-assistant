@@ -1,12 +1,12 @@
-/**
+﻿/**
  * Offline scan of Wingo.html for selectors useful to the CartReader.
- *   npx tsx scraper/analyzeWingoFixture.ts [Wingo.html]
+ *   npx tsx scraper/analyzeWingoFixture.ts [html/Wingo.html]
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { CAPTURES_DIR, ensureDir, timestampSlug } from './paths.js';
 
-const fixturePath = path.resolve(process.argv[2] || 'Wingo.html');
+const fixturePath = path.resolve(process.argv[2] || 'html/Wingo.html');
 
 function main(): void {
   if (!fs.existsSync(fixturePath)) {

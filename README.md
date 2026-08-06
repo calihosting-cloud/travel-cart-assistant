@@ -27,12 +27,12 @@ Extensión de Chrome para asesores de viajes que captura productos turísticos d
 
 ## Productos soportados
 
-### Hoteles (`ejemplobusqueda.html` / `#list-hotel-items`)
+### Hoteles (`html/ejemplobusqueda.html` / `#list-hotel-items`)
 
 - Un botón **+ 🛒** por cada **tarifa** (fila de habitación), no por hotel completo.
 - Captura: nombre, fechas, ocupación, habitación, régimen, proveedor, precio.
 
-### Traslados (`traslados.html` / `#list-transfer-items`)
+### Traslados (`html/traslados.html` / `#list-transfer-items`)
 
 - Un botón **+ 🛒** por cada tarjeta de traslado.
 - Captura: vehículo, origen/destino, tramos IN/OUT, proveedor, precio.
@@ -65,10 +65,10 @@ La extensión se activa en:
 2. Abre el `.html` en Chrome con la extensión cargada.
 3. Usa **+ 🛒** junto a **Reservar** y revisa el carrito lateral.
 
-Fixtures incluidos en el repo:
+Fixtures incluidos en el repo (`html/`):
 
-- `ejemplobusqueda.html` — búsqueda de hoteles
-- `traslados.html` — búsqueda de traslados
+- `html/ejemplobusqueda.html` — búsqueda de hoteles
+- `html/traslados.html` — búsqueda de traslados
 
 Las carpetas `*_files/` con assets no están en Git (son muy pesadas). Para pruebas visuales completas, guarda la página completa localmente.
 

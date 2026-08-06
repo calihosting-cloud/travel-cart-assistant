@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
 import { fileURLToPath } from 'url';
@@ -7,7 +7,7 @@ import { DespegarFlightReader } from '../src/engine/providers/despegar/DespegarF
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const htmlPath = path.resolve(__dirname, '../Despegar.html');
+const htmlPath = path.resolve(__dirname, '../html/Despegar.html');
 const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
 const dom = new JSDOM(htmlContent, {

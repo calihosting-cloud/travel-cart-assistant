@@ -52,7 +52,17 @@ import {
 } from '../shared/trm';
 import { appendAppLog } from '../shared/appLog';
 import {
+  TRIP_GUIDE_KEY,
+  clearTripGuide,
+  loadTripGuide,
+  saveTripGuide,
+} from '../shared/tripGuide';
+import {
+  HotelCompareOptionGroup,
+  loadHotelCompareGroups,
   loadHotelsAsOptions,
+  newHotelCompareGroupId,
+  saveHotelCompareGroups,
   saveHotelsAsOptions,
 } from '../shared/quoteOptions';
 import { buildWhatsAppQuote } from './QuoteBuilder';
@@ -105,6 +115,11 @@ export class CartSidebar {
   private shadow: ShadowRoot;
   private items: CartItem[] = [];
   private searchContext: SearchContext | null = null;
+  /**
+   * First flight search for this trip — sticky header guide (dates/pax/route).
+   * Hotel/BM `tce_last_search` only fills the header until a flight guide exists.
+   */
+  private tripGuide: SearchContext | null = null;
   private fees: Record<string, number> = {};
   private quoteLines: QuoteLine[] = defaultQuoteLines();
   private quoteCopyStatus: 'idle' | 'ok' | 'err' = 'idle';
@@ -118,6 +133,8 @@ export class CartSidebar {
   private clientName = '';
   private includeUsdEquiv = false;
   private hotelsAsOptions = false;
+  /** When comparing: each group is a column (Opción N) with one or more hotels. */
+  private hotelOptionGroups: HotelCompareOptionGroup[] = [];
   /** Unify cart prices/totals to one currency (TRM converts the other). */
   private displayCurrency: DisplayCurrency = 'COP';
   private trmRate = 0;
@@ -157,6 +174,8 @@ export class CartSidebar {
     this.clientName = await loadClientName();
     this.includeUsdEquiv = await loadIncludeUsdEquiv();
     this.hotelsAsOptions = await loadHotelsAsOptions();
+    this.hotelOptionGroups = await loadHotelCompareGroups();
+    this.syncHotelOptionGroups();
     this.pendingQuoteNumber = await loadPendingQuoteNumber();
     this.displayCurrency = await loadDisplayCurrency();
     const trm = await loadTrm();
@@ -272,6 +291,10 @@ export class CartSidebar {
   async addItem(item: CartItem): Promise<void> {
     this.items.push(item);
     this.expandedIds.add(item.id);
+    if (item.type === 'hotel' && this.hotelsAsOptions) {
+      this.syncHotelOptionGroups();
+      // New hotels start unassigned so the advisor picks option chips.
+    }
     await this.saveToStorage();
     this.isOpen = true;
     this.panelTab = 'items';
@@ -288,17 +311,33 @@ export class CartSidebar {
   }
 
   /**
-   * Updates the cart header summary in-memory only (does not write
-   * `tce_last_search`, so BookingMotor hotel↔transfer sync is preserved).
+   * Updates the cart header summary.
+   * - Flight: first one sticks as `tripGuide` (persisted); later flights don't replace it.
+   * - Hotel/transfer/etc.: only shown in the header when there is no flight guide yet.
+   * Does not write `tce_last_search` (BookingMotor hotel↔transfer sync stays separate).
    */
   setSearchContext(ctx: SearchContext): void {
+    if (ctx.sourceType === 'flight') {
+      if (!this.tripGuide) {
+        this.tripGuide = ctx;
+        void saveTripGuide(ctx);
+      }
+      this.render();
+      return;
+    }
     this.searchContext = ctx;
     this.render();
+  }
+
+  /** Context shown in the header: sticky flight guide wins over BM last search. */
+  private headerSearchContext(): SearchContext | null {
+    return this.tripGuide ?? this.searchContext;
   }
 
   async removeItem(id: string): Promise<void> {
     this.items = this.items.filter((i) => i.id !== id);
     this.expandedIds.delete(id);
+    this.syncHotelOptionGroups();
     await this.saveToStorage();
     this.render();
   }
@@ -311,12 +350,14 @@ export class CartSidebar {
     this.panelTab = 'items';
     this.expandedIds.clear();
     this.searchContext = null;
+    this.tripGuide = null;
     this.fees = this.defaultFees();
     this.pendingQuoteNumber = null;
     this.clientName = '';
     this.applyTaType('nacional_rt', true);
     await this.saveToStorage();
     await this.clearSearchContextStorage();
+    await clearTripGuide();
     await this.saveFees();
     await savePendingQuoteNumber(null);
     await saveClientName('');
@@ -358,8 +399,8 @@ export class CartSidebar {
       quoteNumber,
       advisorName: this.advisorName,
       clientName: this.clientName.trim() || undefined,
-      destination: this.searchContext?.destinationText,
-      searchContext: this.searchContext,
+      destination: this.headerSearchContext()?.destinationText,
+      searchContext: this.headerSearchContext(),
       items: [...this.items],
       fees: { ...this.fees },
       taTotal: this.getTaTotal() || undefined,
@@ -425,6 +466,7 @@ export class CartSidebar {
       if (!ids.has(id)) this.expandedIds.delete(id);
     }
     if (this.items.length === 0) this.panelTab = 'items';
+    this.syncHotelOptionGroups();
   }
 
   private applyFeesFromStorage(stored: Record<string, number> | undefined): void {
@@ -503,12 +545,11 @@ export class CartSidebar {
 
   private async loadSearchContext(): Promise<void> {
     try {
+      this.tripGuide = await loadTripGuide();
       const result = await chrome.storage.local.get(SEARCH_KEY);
       const stored = result[SEARCH_KEY] as SearchContext | undefined;
-      if (stored) {
-        this.searchContext = stored;
-        this.render();
-      }
+      this.searchContext = stored && stored.sourceType !== 'flight' ? stored : null;
+      this.render();
     } catch {
       // storage unavailable
     }
@@ -517,9 +558,23 @@ export class CartSidebar {
   private watchSearchContext(): void {
     try {
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'local' || !changes[SEARCH_KEY]) return;
-        this.searchContext = (changes[SEARCH_KEY].newValue as SearchContext) ?? null;
-        this.render();
+        if (area !== 'local') return;
+        let dirty = false;
+        if (changes[TRIP_GUIDE_KEY]) {
+          const next = changes[TRIP_GUIDE_KEY].newValue as SearchContext | undefined;
+          this.tripGuide = next?.sourceType === 'flight' ? next : null;
+          dirty = true;
+        }
+        if (changes[SEARCH_KEY]) {
+          const next = changes[SEARCH_KEY].newValue as SearchContext | undefined;
+          if (!next) {
+            this.searchContext = null;
+          } else if (next.sourceType !== 'flight') {
+            this.searchContext = next;
+          }
+          dirty = true;
+        }
+        if (dirty) this.render();
       });
     } catch {
       // storage.onChanged unavailable (e.g. test harness)
@@ -589,6 +644,9 @@ export class CartSidebar {
       } else if (item.type === 'insurance') {
         candidates.push(item.passengers);
       }
+    }
+    if (this.tripGuide) {
+      candidates.push(this.tripGuide.totalAdults + this.tripGuide.totalChildren);
     }
     if (this.searchContext) {
       candidates.push(
@@ -702,6 +760,8 @@ export class CartSidebar {
       const fromFlight = (flight.origin.name || flight.origin.code || '').trim();
       if (fromFlight) return fromFlight;
     }
+    const fromGuide = this.tripGuide?.originText?.trim();
+    if (fromGuide) return fromGuide;
     const fromCtx = this.searchContext?.originText?.trim();
     return fromCtx || null;
   }
@@ -760,7 +820,7 @@ export class CartSidebar {
   }
 
   private formatPrice(currency: string, price: number): string {
-    return `${currency} ${price.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    return `${currency} ${price.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   }
 
   private roomCapacityLabel(adults: number, children: number): string {
@@ -800,18 +860,74 @@ export class CartSidebar {
   }
 
   /**
-   * When "Comparar hoteles" is on: each hotel option = shared services + that
-   * hotel + fees (TA / mayor / redondeo globales).
+   * Prune stale hotel ids; if comparing and no groups yet, seed one option per hotel
+   * (legacy “each hotel = one option”). Persist when the list changes.
+   */
+  private syncHotelOptionGroups(): void {
+    const hotelIds = new Set(
+      this.items.filter((i): i is HotelCartItem => i.type === 'hotel').map((h) => h.id)
+    );
+    let changed = false;
+    const pruned = this.hotelOptionGroups.map((g) => {
+      const nextIds = g.hotelIds.filter((id) => hotelIds.has(id));
+      if (nextIds.length !== g.hotelIds.length) changed = true;
+      return { ...g, hotelIds: nextIds };
+    });
+    this.hotelOptionGroups = pruned;
+
+    if (hotelIds.size === 0) {
+      if (this.hotelOptionGroups.length > 0) {
+        this.hotelOptionGroups = [];
+        changed = true;
+      }
+    } else if (this.hotelsAsOptions && this.hotelOptionGroups.length === 0) {
+      this.hotelOptionGroups = [...hotelIds].map((id) => ({
+        id: newHotelCompareGroupId(),
+        hotelIds: [id],
+      }));
+      changed = true;
+    }
+
+    if (changed) void saveHotelCompareGroups(this.hotelOptionGroups);
+  }
+
+  private addHotelOptionGroup(): void {
+    this.hotelOptionGroups.push({ id: newHotelCompareGroupId(), hotelIds: [] });
+    void saveHotelCompareGroups(this.hotelOptionGroups);
+    this.render();
+  }
+
+  private removeHotelOptionGroup(optionId: string): void {
+    if (this.hotelOptionGroups.length <= 1) return;
+    this.hotelOptionGroups = this.hotelOptionGroups.filter((g) => g.id !== optionId);
+    void saveHotelCompareGroups(this.hotelOptionGroups);
+    this.render();
+  }
+
+  private toggleHotelInOption(optionId: string, hotelId: string): void {
+    const group = this.hotelOptionGroups.find((g) => g.id === optionId);
+    if (!group) return;
+    const idx = group.hotelIds.indexOf(hotelId);
+    if (idx >= 0) group.hotelIds.splice(idx, 1);
+    else group.hotelIds.push(hotelId);
+    void saveHotelCompareGroups(this.hotelOptionGroups);
+    this.render();
+  }
+
+  /**
+   * When "Comparar hoteles" is on: each option group = shared services + its
+   * hotels + fees (TA / mayor / redondeo globales). A hotel may belong to several options.
    */
   private getHotelCompareOptions(): Array<{
     index: number;
-    hotel: HotelCartItem;
+    optionId: string;
+    hotels: HotelCartItem[];
     currency: string;
     optionTotal: number;
     perPerson: number;
   }> {
-    const hotels = this.items.filter((i): i is HotelCartItem => i.type === 'hotel');
-    if (!this.hotelsAsOptions || hotels.length === 0) return [];
+    if (!this.hotelsAsOptions) return [];
+    this.syncHotelOptionGroups();
 
     const feesTotal = this.getFeesTotal();
     const shared = this.items
@@ -819,45 +935,140 @@ export class CartSidebar {
       .reduce((sum, i) => sum + this.getItemLineTotal(i).price, 0);
     const pax = Math.max(1, this.getTaPaxCount());
     const currency = this.displayCurrency;
+    const byId = new Map(
+      this.items.filter((i): i is HotelCartItem => i.type === 'hotel').map((h) => [h.id, h])
+    );
 
-    return hotels.map((hotel, index) => {
-      const hotelLine = this.getItemLineTotal(hotel).price;
-      const optionTotal = shared + hotelLine + feesTotal;
-      const perPerson =
-        this.displayCurrency === 'USD'
-          ? Math.round((optionTotal / pax) * 100) / 100
-          : Math.round(optionTotal / pax);
-      return { index: index + 1, hotel, currency, optionTotal, perPerson };
-    });
+    return this.hotelOptionGroups
+      .map((g, index) => {
+        const hotels = g.hotelIds
+          .map((id) => byId.get(id))
+          .filter((h): h is HotelCartItem => !!h);
+        const hotelLine = hotels.reduce((sum, h) => sum + this.getItemLineTotal(h).price, 0);
+        const optionTotal = shared + hotelLine + feesTotal;
+        const perPerson = Math.round(optionTotal / pax);
+        return {
+          index: index + 1,
+          optionId: g.id,
+          hotels,
+          currency,
+          optionTotal,
+          perPerson,
+        };
+      })
+      .filter((opt) => opt.hotels.length > 0);
+  }
+
+  private renderHotelOptionChips(hotelId: string): string {
+    if (!this.hotelsAsOptions) return '';
+    this.syncHotelOptionGroups();
+    if (this.hotelOptionGroups.length === 0) return '';
+    const chips = this.hotelOptionGroups
+      .map((g, i) => {
+        const on = g.hotelIds.includes(hotelId);
+        return `<button type="button" class="tce-opt-chip${on ? ' tce-opt-chip--on' : ''}"
+          data-action="toggle-hotel-option" data-option-id="${this.escape(g.id)}"
+          data-hotel-id="${this.escape(hotelId)}" title="Incluir en Opción ${i + 1}">Opción ${i + 1}</button>`;
+      })
+      .join('');
+    return `<div class="tce-opt-chips" title="Asignar este hotel a una o más opciones">${chips}</div>`;
   }
 
   private renderHotelCompareBlock(opts?: { compact?: boolean }): string {
-    const options = this.getHotelCompareOptions();
-    if (options.length < 2) return '';
+    if (!this.hotelsAsOptions) return '';
+    this.syncHotelOptionGroups();
+    const priced = this.getHotelCompareOptions();
     const pax = Math.max(1, this.getTaPaxCount());
-    const rows = options
-      .map(
-        (opt) => `
-      <div class="tce-compare-option">
-        <div class="tce-compare-option-title">
-          Opción ${opt.index}: ${this.escape(opt.hotel.hotelName)}
-        </div>
-        <div class="tce-compare-option-row">
-          <span>Por pasajero (${pax} pax)</span>
-          <strong>${this.escape(this.formatPrice(opt.currency, opt.perPerson))}</strong>
-        </div>
-        <div class="tce-compare-option-row">
-          <span>Total</span>
-          <strong>${this.escape(this.formatPrice(opt.currency, opt.optionTotal))}</strong>
-        </div>
-      </div>`
-      )
+
+    const columns = this.hotelOptionGroups
+      .map((g, i) => {
+        const pricedOpt = priced.find((p) => p.optionId === g.id);
+        const hotels =
+          pricedOpt?.hotels ??
+          g.hotelIds
+            .map((id) => this.items.find((it) => it.id === id && it.type === 'hotel'))
+            .filter((h): h is HotelCartItem => !!h);
+        const hotelRows =
+          hotels.length === 0
+            ? `<div class="tce-compare-hotel-empty">Sin hoteles — marca Opción ${i + 1} en un hotel</div>`
+            : hotels
+                .map(
+                  (h) => `
+            <div class="tce-compare-hotel-line">
+              <span class="tce-compare-hotel-name">${this.escape(h.hotelName)}</span>
+              <span class="tce-compare-hotel-nights">${h.nights}n · ${this.escape(h.checkIn)}→${this.escape(h.checkOut)}</span>
+            </div>`
+                )
+                .join('');
+        const prices = pricedOpt
+          ? `
+          <div class="tce-compare-option-row">
+            <span>Por pasajero (${pax} pax)</span>
+            <strong>${this.escape(this.formatPrice(pricedOpt.currency, pricedOpt.perPerson))}</strong>
+          </div>
+          <div class="tce-compare-option-row">
+            <span>Total</span>
+            <strong>${this.escape(this.formatPrice(pricedOpt.currency, pricedOpt.optionTotal))}</strong>
+          </div>`
+          : '';
+        const canRemove = this.hotelOptionGroups.length > 1;
+        return `
+        <div class="tce-compare-column" data-option-id="${this.escape(g.id)}">
+          <div class="tce-compare-column-head">
+            <span>Opción ${i + 1}</span>
+            ${
+              canRemove
+                ? `<button type="button" class="tce-compare-col-remove" data-action="remove-hotel-option" data-option-id="${this.escape(g.id)}" title="Quitar opción">✕</button>`
+                : ''
+            }
+          </div>
+          ${hotelRows}
+          ${prices}
+        </div>`;
+      })
       .join('');
 
     return `
       <div class="tce-compare-hotels${opts?.compact ? ' tce-compare-hotels--compact' : ''}">
-        <div class="tce-compare-title">Comparar hoteles · ${options.length} opciones</div>
-        ${rows}
+        <div class="tce-compare-title-row">
+          <div class="tce-compare-title">Comparar hoteles · ${this.hotelOptionGroups.length} opción${this.hotelOptionGroups.length !== 1 ? 'es' : ''}</div>
+          <button type="button" class="tce-add-option-btn" data-action="add-hotel-option">+ Nueva opción</button>
+        </div>
+        <div class="tce-compare-columns">${columns}</div>
+      </div>`;
+  }
+
+  /** Compact grand total for Productos when not comparing hotels. */
+  private renderSimpleTotalsCompact(): string {
+    if (this.items.length === 0) return '';
+    const subtotals = this.getTotalsByCurrency();
+    const feesTotal = this.getFeesTotal();
+    const primaryCurrency = this.getPrimaryCurrency(subtotals) || this.displayCurrency;
+    const pax = Math.max(1, this.getTaPaxCount());
+    const rows = Array.from(subtotals.entries()).map(([currency, value]) => {
+      const total = currency === primaryCurrency ? value + feesTotal : value;
+      const perPerson = Math.round(total / pax);
+      return { currency, total, perPerson };
+    });
+    if (rows.length === 0) return '';
+    return `
+      <div class="tce-compare-hotels tce-compare-hotels--compact">
+        <div class="tce-compare-title">Total</div>
+        ${rows
+          .map(
+            (r) => `
+        <div class="tce-compare-option">
+          <div class="tce-compare-option-row">
+            <span>Por pasajero (${pax} pax)</span>
+            <strong>${this.escape(this.formatPrice(r.currency, r.perPerson))}</strong>
+          </div>
+          <div class="tce-compare-option-row">
+            <span>Total ${this.escape(r.currency)}</span>
+            <strong>${this.escape(this.formatPrice(r.currency, r.total))}</strong>
+          </div>
+        </div>`
+          )
+          .join('')}
       </div>`;
   }
 
@@ -938,7 +1149,8 @@ export class CartSidebar {
       }
       .tce-tab:hover { background: #1d4ed8; }
       .tce-tab--open { right: 340px; }
-      .tce-tab--open.tce-tab--wide { right: 520px; }
+      .tce-tab--open.tce-tab--wide { right: 560px; }
+      .tce-tab--open.tce-tab--compare { right: 720px; }
 
       .tce-badge {
         display: inline-block;
@@ -968,7 +1180,8 @@ export class CartSidebar {
         transition: transform 0.25s ease, width 0.25s ease;
       }
       .tce-panel--open { transform: translateX(0); }
-      .tce-panel--wide { width: 520px; }
+      .tce-panel--wide { width: 560px; }
+      .tce-panel--compare { width: 720px; }
 
       .tce-header {
         display: flex;
@@ -1038,13 +1251,80 @@ export class CartSidebar {
       .tce-compare-hotels--compact {
         margin-top: 8px;
       }
+      .tce-compare-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
       .tce-compare-title {
         font-size: 11px;
         font-weight: 700;
         color: #1e40af;
-        margin-bottom: 8px;
         text-transform: uppercase;
         letter-spacing: 0.03em;
+      }
+      .tce-add-option-btn {
+        flex-shrink: 0;
+        border: 1px solid #93c5fd;
+        background: #fff;
+        color: #1d4ed8;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+      .tce-add-option-btn:hover { background: #dbeafe; }
+      .tce-compare-columns {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .tce-compare-column {
+        flex: 1 0 150px;
+        min-width: 150px;
+        max-width: 220px;
+        background: #fff;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        padding: 8px;
+      }
+      .tce-compare-column-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 700;
+        color: #1e3a8a;
+        margin-bottom: 6px;
+      }
+      .tce-compare-col-remove {
+        border: none;
+        background: transparent;
+        color: #64748b;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0 2px;
+        line-height: 1;
+      }
+      .tce-compare-col-remove:hover { color: #dc2626; }
+      .tce-compare-hotel-line {
+        font-size: 11px;
+        color: #334155;
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+        border-bottom: 1px dashed #e2e8f0;
+      }
+      .tce-compare-hotel-name { display: block; font-weight: 600; }
+      .tce-compare-hotel-nights { display: block; color: #64748b; font-size: 10px; margin-top: 2px; }
+      .tce-compare-hotel-empty {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-bottom: 6px;
+        line-height: 1.35;
       }
       .tce-compare-option {
         padding: 8px 0;
@@ -1072,6 +1352,27 @@ export class CartSidebar {
         color: #1e40af;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
+      }
+      .tce-opt-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 6px;
+      }
+      .tce-opt-chip {
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        color: #475569;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+      .tce-opt-chip--on {
+        border-color: #2563eb;
+        background: #dbeafe;
+        color: #1e40af;
       }
       .tce-width-toggle,
       .tce-close {
@@ -1912,6 +2213,8 @@ export class CartSidebar {
     typeLabel: string;
     title: string;
     meta?: string;
+    /** HTML injected under the summary (e.g. option chips). Not escaped. */
+    summaryExtraHtml?: string;
     /** Base product details (adjustments are appended automatically). */
     detailsHtml: string;
   }): string {
@@ -1922,10 +2225,11 @@ export class CartSidebar {
     const priceLabel = this.formatPrice(line.currency, line.price);
     const id = this.escape(opts.item.id);
     const openLink = this.renderItemOpenLink(opts.item);
+    const extra = opts.summaryExtraHtml || '';
 
     if (!expanded) {
       return `
-        <div class="tce-item tce-item--collapsed" data-id="${id}">
+        <div class="tce-item tce-item--truncated" data-id="${id}">
           <div class="tce-item-head">
             <button type="button" class="tce-item-toggle" data-action="toggle-item"
               data-id="${id}" title="${toggleTitle}" aria-expanded="false">${toggleLabel}</button>
@@ -1933,6 +2237,7 @@ export class CartSidebar {
               <p class="tce-item-summary-type">${this.escape(opts.typeLabel)}</p>
               <p class="tce-item-summary-title">${this.escape(opts.title)}</p>
               ${opts.meta ? `<p class="tce-item-summary-meta">${this.escape(opts.meta)}</p>` : ''}
+              ${extra}
             </div>
             <div class="tce-item-summary-price">${this.escape(priceLabel)}</div>
             ${openLink}
@@ -1949,6 +2254,7 @@ export class CartSidebar {
             data-id="${id}" title="${toggleTitle}" aria-expanded="true">${toggleLabel}</button>
           <div class="tce-item-summary">
             <p class="tce-item-summary-type" style="margin:0">${this.escape(opts.typeLabel)}</p>
+            ${extra}
           </div>
           ${openLink}
           <button class="tce-remove" data-action="remove" data-id="${id}" title="Quitar">✕</button>
@@ -2192,6 +2498,7 @@ export class CartSidebar {
       typeLabel: 'Hotel',
       title: item.hotelName,
       meta: `${item.checkIn} → ${item.checkOut} · ${item.nights} noche${item.nights !== 1 ? 's' : ''}`,
+      summaryExtraHtml: this.renderHotelOptionChips(item.id),
       detailsHtml,
     });
   }
@@ -2357,7 +2664,11 @@ export class CartSidebar {
       bodyHtml = `
         ${itemsHtml}
         <div class="tce-footer tce-footer--scroll" style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0">
-          ${this.renderHotelCompareBlock({ compact: true })}
+          ${
+            this.hotelsAsOptions
+              ? this.renderHotelCompareBlock({ compact: true })
+              : this.renderSimpleTotalsCompact()
+          }
           <button class="tce-clear" data-action="clear">Vaciar carrito</button>
         </div>`;
     } else if (this.panelTab === 'total') {
@@ -2370,8 +2681,9 @@ export class CartSidebar {
       bodyHtml = `<div class="tce-quote">${this.renderQuoteSection()}</div>`;
     }
 
-    const wideClass = this.panelWide ? ' tce-panel--wide' : '';
-    const tabWideClass = this.panelWide ? ' tce-tab--wide' : '';
+    const compareWide = this.hotelsAsOptions && this.hotelOptionGroups.length > 0;
+    const wideClass = `${this.panelWide ? ' tce-panel--wide' : ''}${compareWide ? ' tce-panel--compare' : ''}`;
+    const tabWideClass = `${this.panelWide ? ' tce-tab--wide' : ''}${compareWide ? ' tce-tab--compare' : ''}`;
     const widthTitle = this.panelWide ? 'Reducir ancho' : 'Ampliar ancho';
     const widthIcon = this.panelWide ? '››' : '‹‹';
     const trmValue = this.trmRate > 0 ? String(Math.round(this.trmRate)) : '';
@@ -2419,15 +2731,16 @@ export class CartSidebar {
           <span class="tce-trm-hint">Vista ${this.displayCurrency}${trmEffHint} · <a href="${TRM_REFERENCE_PAGE}" target="_blank" rel="noopener" style="color:#92400e">dolar-colombia.com</a></span>
         </div>
         ${(() => {
+          const ctx = this.headerSearchContext();
           const summary =
-            this.searchContext && this.formatSearchSummary(this.searchContext)
-              ? this.formatSearchSummary(this.searchContext)
+            ctx && this.formatSearchSummary(ctx)
+              ? this.formatSearchSummary(ctx)
               : this.resolveOriginLabel()
                 ? `Origen: ${this.escape(this.resolveOriginLabel()!)}`
                 : '';
           return summary
             ? `<div class="tce-search-summary">
-                 <span class="tce-search-summary-label">Búsqueda actual</span>
+                 <span class="tce-search-summary-label">${this.tripGuide ? 'Guía del viaje' : 'Búsqueda actual'}</span>
                  <span class="tce-search-summary-text">${summary}</span>
                </div>`
             : '';
@@ -2796,7 +3109,7 @@ export class CartSidebar {
     );
     return buildWhatsAppQuote({
       items: this.items,
-      searchContext: this.searchContext,
+      searchContext: this.headerSearchContext(),
       subtotals,
       feesTotal,
       primaryCurrency,
@@ -2806,6 +3119,7 @@ export class CartSidebar {
       trm: this.getEffectiveTrm() > 0 ? this.getEffectiveTrm() : undefined,
       includeUsdEquiv: this.includeUsdEquiv,
       hotelsAsOptions: this.hotelsAsOptions,
+      hotelOptionGroups: this.hotelsAsOptions ? this.hotelOptionGroups : undefined,
       itemTotals,
     });
   }
@@ -2982,15 +3296,11 @@ export class CartSidebar {
 
     const totalRows = Array.from(subtotals.entries()).map(([currency, value]) => {
       const total = currency === primaryCurrency ? value + feesTotal : value;
-      const perPerson =
-        this.displayCurrency === 'USD'
-          ? Math.round((total / paxForRate) * 100) / 100
-          : Math.round(total / paxForRate);
+      const perPerson = Math.round(total / paxForRate);
       return { currency, total, perPerson };
     });
 
-    const compareOptions = this.getHotelCompareOptions();
-    const compareMode = compareOptions.length >= 2;
+    const compareMode = this.hotelsAsOptions;
 
     const perPersonHtml = compareMode
       ? ''
@@ -3193,6 +3503,15 @@ export class CartSidebar {
         void this.copyQuoteToClipboard();
       } else if (action === 'preview-quote') {
         this.showQuotePreview();
+      } else if (action === 'add-hotel-option') {
+        this.addHotelOptionGroup();
+      } else if (action === 'remove-hotel-option') {
+        const optionId = target.dataset.optionId;
+        if (optionId) this.removeHotelOptionGroup(optionId);
+      } else if (action === 'toggle-hotel-option') {
+        const optionId = target.dataset.optionId;
+        const hotelId = target.dataset.hotelId;
+        if (optionId && hotelId) this.toggleHotelInOption(optionId, hotelId);
       }
     });
 
@@ -3220,6 +3539,7 @@ export class CartSidebar {
       if (target.classList.contains('tce-hotels-as-options')) {
         this.hotelsAsOptions = (target as HTMLInputElement).checked;
         void saveHotelsAsOptions(this.hotelsAsOptions);
+        if (this.hotelsAsOptions) this.syncHotelOptionGroups();
         this.render();
         return;
       }

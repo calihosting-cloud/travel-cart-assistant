@@ -196,13 +196,19 @@ export class BookingMotorSearchFormSync {
   private applyTransfer(form: HTMLFormElement, ctx: SearchContext): boolean {
     let changed = false;
 
+    // Hotel stays imply a return transfer: switch Solo ida → Ida y vuelta so
+    // the checkout field is visible and BookingMotor's changeType runs.
+    if (ctx.checkOut) {
+      changed = this.setTransferType(form, '2') || changed;
+    }
+
     if (ctx.checkIn) {
       changed = this.setValue(form, 'searchtransfer[checkin]', ctx.checkIn) || changed;
     }
 
-    // Only touch the return date if the form is in round-trip mode already.
-    const roundTrip = this.value(form, 'searchtransfer[type]') === '2';
-    if (roundTrip && ctx.checkOut) {
+    // Always write checkout after check-in. BookingMotor's check-in change
+    // handler sets checkout = check-in + 1 day; overwrite with hotel check-out.
+    if (ctx.checkOut) {
       changed = this.setValue(form, 'searchtransfer[checkout]', ctx.checkOut) || changed;
     }
 
@@ -228,6 +234,29 @@ export class BookingMotorSearchFormSync {
     }
 
     return changed;
+  }
+
+  /** Selects Solo ida (1) or Ida y vuelta (2) and triggers BookingMotor's UI. */
+  private setTransferType(form: HTMLFormElement, type: '1' | '2'): boolean {
+    const radio = form.querySelector<HTMLInputElement>(
+      `input[name="searchtransfer[type]"][value="${type}"]`
+    );
+    if (!radio || radio.checked) return false;
+
+    const label = radio.closest('label');
+    // Prefer clicking the label: BM listens on `.types label` click → changeType.
+    if (label) {
+      form.querySelectorAll('.types label').forEach((l) => l.classList.remove('active'));
+      label.classList.add('active');
+      radio.checked = true;
+      label.click();
+    } else {
+      form.querySelectorAll<HTMLInputElement>('input[name="searchtransfer[type]"]').forEach((r) => {
+        r.checked = r === radio;
+      });
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    return true;
   }
 
   private applyActivity(form: HTMLFormElement, ctx: SearchContext): boolean {

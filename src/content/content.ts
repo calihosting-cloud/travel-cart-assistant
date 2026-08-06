@@ -412,6 +412,7 @@ function applyFlightSearchSummary(flight: {
   returnDate?: string;
   adults: number;
   children: number;
+  infants?: number;
 }): void {
   const originText = flight.origin.name || flight.origin.code || undefined;
   const destinationText =
@@ -420,8 +421,7 @@ function applyFlightSearchSummary(flight: {
     flight.title ||
     undefined;
 
-  // In-memory only: writing `tce_last_search` here used to wipe the hotel→transfer
-  // sync context that BookingMotor relies on.
+  // Sticky trip guide (first flight wins). Keeps BM `tce_last_search` untouched.
   const ctx: SearchContext = {
     sourceType: 'flight',
     checkIn: isoToDdMmYyyy(flight.departureDate),
@@ -722,14 +722,7 @@ function initWingo(): void {
 
   let debounceTimer: number | undefined;
   const tryInject = () => {
-    // On wingo.com always try; hasSearchPage is only a soft preference.
-    const ok =
-      WingoFlightReader.hasSearchPage(document) ||
-      /wingo\.com/i.test(location.hostname);
-    if (!ok) {
-      console.log('[TCE] Wingo: page not ready for button yet');
-      return;
-    }
+    // injectButton hides itself on the search form; only mounts beside Total.
     try {
       wingoUIInjector.injectButton(document, handleAddWingoFlightToCart);
     } catch (err) {

@@ -157,7 +157,8 @@ export function usdToCop(usd: number, trm: number): number {
 
 export function copToUsd(cop: number, trm: number): number {
   if (!(trm > 0)) return 0;
-  return Math.round((cop / trm) * 100) / 100;
+  // Whole USD (no cents) for cart display / quotes.
+  return Math.round(cop / trm);
 }
 
 export type DisplayCurrency = 'COP' | 'USD';

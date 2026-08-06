@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
 import { BookingMotorTransferExtractor } from '../src/engine/providers/bookingmotor/BookingMotorTransferExtractor';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const htmlPath = path.resolve(__dirname, '../traslados.html');
+const htmlPath = path.resolve(__dirname, '../html/traslados.html');
 const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
 const match = htmlContent.match(/let\s+data\s*=\s*JSON\.parse\('(.*?)'\);/);

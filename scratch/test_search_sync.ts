@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
 import { fileURLToPath } from 'url';
@@ -29,7 +29,7 @@ console.log('        TRAVEL CAPTURE ENGINE - SEARCH SYNC       ');
 console.log('==================================================');
 
 // 1) Capture the hotel search form.
-const hotelDoc = loadDoc('ejemplobusqueda.html', 'https://reservas.grupostravel.com/es/backoffice/list-hotel/x');
+const hotelDoc = loadDoc('html/ejemplobusqueda.html', 'https://reservas.grupostravel.com/es/backoffice/list-hotel/x');
 const hotelForm = sync.getForm(hotelDoc, 'hotel');
 if (!hotelForm) {
   console.error('FAIL: #search_hotel not found');
@@ -47,7 +47,7 @@ assert('hotel total adults = 2', hotelCtx.totalAdults === 2, String(hotelCtx.tot
 assert('hotel total children = 0', hotelCtx.totalChildren === 0, String(hotelCtx.totalChildren));
 
 // 2) Apply the hotel context onto the transfer form.
-const transferDoc = loadDoc('traslados.html', 'https://reservas.grupostravel.com/es/backoffice/list-transfer/x');
+const transferDoc = loadDoc('html/traslados.html', 'https://reservas.grupostravel.com/es/backoffice/list-transfer/x');
 const transferForm = sync.getForm(transferDoc, 'transfer');
 if (!transferForm) {
   console.error('FAIL: #search_transfer not found');
@@ -59,8 +59,38 @@ assert('apply reported a change', changed);
 
 const tAdults = transferForm.querySelector<HTMLSelectElement>('[name="searchtransfer[adults]"]');
 const tCheckin = transferForm.querySelector<HTMLInputElement>('[name="searchtransfer[checkin]"]');
+const tCheckout = transferForm.querySelector<HTMLInputElement>('[name="searchtransfer[checkout]"]');
+const tType = transferForm.querySelector<HTMLInputElement>(
+  'input[name="searchtransfer[type]"]:checked'
+);
 assert('transfer adults set to 2', tAdults?.value === '2', tAdults?.value);
 assert('transfer checkin set to 04-08-2026', tCheckin?.value === '04-08-2026', tCheckin?.value);
+assert('transfer checkout set to hotel checkOut', tCheckout?.value === '07-08-2026', tCheckout?.value);
+assert('transfer type is Ida y vuelta', tType?.value === '2', tType?.value);
+
+// 2b) Starting from Solo ida, apply with hotel checkOut must switch to Ida y vuelta
+// and write the hotel return date (not BookingMotor's check-in + 1).
+const soloIda = transferForm.querySelector<HTMLInputElement>(
+  'input[name="searchtransfer[type]"][value="1"]'
+);
+const roundTrip = transferForm.querySelector<HTMLInputElement>(
+  'input[name="searchtransfer[type]"][value="2"]'
+);
+if (soloIda && roundTrip && tCheckout) {
+  soloIda.checked = true;
+  roundTrip.checked = false;
+  transferForm.querySelectorAll('.types label').forEach((l) => l.classList.remove('active'));
+  soloIda.closest('label')?.classList.add('active');
+  tCheckout.value = '';
+  const changedSolo = sync.apply(transferForm, 'transfer', hotelCtx);
+  assert('apply from Solo ida reported a change', changedSolo);
+  assert('switched to Ida y vuelta', roundTrip.checked, String(roundTrip.checked));
+  assert(
+    'checkout written after switching to round-trip',
+    tCheckout.value === '07-08-2026',
+    tCheckout.value
+  );
+}
 
 // 3) Capture a transfer form and confirm children ages round-trip.
 const transferCtx = sync.capture(transferForm, 'transfer');

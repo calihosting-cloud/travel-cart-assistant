@@ -1,4 +1,4 @@
-import { autoLogin, manualLogin } from './auth.js';
+﻿import { autoLogin, manualLogin } from './auth.js';
 import { captureBookingMotorPage } from './capture.js';
 import { scrapeAvianca, parseAviancaArgs } from './avianca.js';
 
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
 
     case 'avianca:analyze': {
       const { spawnSync } = await import('child_process');
-      const fixture = process.argv[3] || 'Avianca.html';
+      const fixture = process.argv[3] || 'html/Avianca.html';
       const r = spawnSync(
         process.platform === 'win32' ? 'npx.cmd' : 'npx',
         ['tsx', 'scraper/analyzeAviancaFixture.ts', fixture],
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
       console.log('  tsx scraper/run.ts login:manual');
       console.log('  npm run scrape:capture -- <url> [slug]');
       console.log('  npm run scrape:avianca              (live; mejor sin --headless)');
-      console.log('  npm run scrape:avianca:analyze      (analiza Avianca.html guardado)');
+      console.log('  npm run scrape:avianca:analyze      (analiza html/Avianca.html guardado)');
       console.log(
         '  npm run scrape:avianca -- --origin CLO --dest MDE --depart 2026-07-29 --return 2026-08-08'
       );
