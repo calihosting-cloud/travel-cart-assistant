@@ -295,6 +295,11 @@ export class CartSidebar {
       this.syncHotelOptionGroups();
       // New hotels start unassigned so the advisor picks option chips.
     }
+    if (item.type === 'hotel') {
+      const ages = item.occupancy.flatMap((o) => o.childrenAges ?? []);
+      const children = item.occupancy.reduce((s, o) => s + o.children, 0);
+      this.enrichTripGuideChildAges(ages, children);
+    }
     await this.saveToStorage();
     this.isOpen = true;
     this.panelTab = 'items';
@@ -314,6 +319,7 @@ export class CartSidebar {
    * Updates the cart header summary.
    * - Flight: first one sticks as `tripGuide` (persisted); later flights don't replace it.
    * - Hotel/transfer/etc.: only shown in the header when there is no flight guide yet.
+   * - Child ages from BM (or a hotel in cart) enrich the sticky guide when present.
    * Does not write `tce_last_search` (BookingMotor hotel↔transfer sync stays separate).
    */
   setSearchContext(ctx: SearchContext): void {
@@ -326,12 +332,79 @@ export class CartSidebar {
       return;
     }
     this.searchContext = ctx;
+    this.enrichTripGuideChildAges(ctx.childrenAges, ctx.totalChildren);
     this.render();
   }
 
-  /** Context shown in the header: sticky flight guide wins over BM last search. */
+  /** Valid child ages only (empty → omit from guía). Age 0 is allowed. */
+  private normalizeChildAges(ages: number[] | undefined | null): number[] {
+    if (!ages?.length) return [];
+    return ages.filter((a) => typeof a === 'number' && Number.isFinite(a) && a >= 0 && a <= 17);
+  }
+
+  /**
+   * When the sticky flight guide has no ages yet (or BM updates them),
+   * persist ages into `tce_trip_guide` so the header shows them.
+   */
+  private enrichTripGuideChildAges(ages: number[] | undefined | null, children?: number): void {
+    if (!this.tripGuide) return;
+    const clean = this.normalizeChildAges(ages);
+    if (clean.length === 0) return;
+    const prev = this.normalizeChildAges(this.tripGuide.childrenAges);
+    const same =
+      prev.length === clean.length && prev.every((a, i) => a === clean[i]);
+    const nextChildren =
+      children != null && children > 0
+        ? children
+        : Math.max(this.tripGuide.totalChildren, clean.length);
+    if (same && this.tripGuide.totalChildren === nextChildren) return;
+
+    this.tripGuide = {
+      ...this.tripGuide,
+      childrenAges: clean,
+      totalChildren: nextChildren,
+      rooms:
+        this.tripGuide.rooms.length > 0
+          ? this.tripGuide.rooms.map((r, i) =>
+              i === 0 ? { ...r, childrenAges: clean, children: nextChildren } : r
+            )
+          : [{ adults: this.tripGuide.totalAdults, children: nextChildren, childrenAges: clean }],
+    };
+    void saveTripGuide(this.tripGuide);
+  }
+
+  /** Context shown in the header: sticky flight guide wins; ages may come from BM/hotel. */
   private headerSearchContext(): SearchContext | null {
-    return this.tripGuide ?? this.searchContext;
+    const guide = this.tripGuide;
+    const search = this.searchContext;
+    if (!guide) return search;
+
+    const guideAges = this.normalizeChildAges(guide.childrenAges);
+    if (guideAges.length > 0) return guide;
+
+    const fromSearch = this.normalizeChildAges(search?.childrenAges);
+    if (fromSearch.length > 0) {
+      return {
+        ...guide,
+        childrenAges: fromSearch,
+        totalChildren: Math.max(guide.totalChildren, search?.totalChildren ?? 0, fromSearch.length),
+      };
+    }
+
+    const fromHotels = this.normalizeChildAges(
+      this.items
+        .filter((i): i is HotelCartItem => i.type === 'hotel')
+        .flatMap((h) => h.occupancy.flatMap((o) => o.childrenAges ?? []))
+    );
+    if (fromHotels.length > 0) {
+      return {
+        ...guide,
+        childrenAges: fromHotels,
+        totalChildren: Math.max(guide.totalChildren, fromHotels.length),
+      };
+    }
+
+    return guide;
   }
 
   async removeItem(id: string): Promise<void> {
@@ -571,6 +644,7 @@ export class CartSidebar {
             this.searchContext = null;
           } else if (next.sourceType !== 'flight') {
             this.searchContext = next;
+            this.enrichTripGuideChildAges(next.childrenAges, next.totalChildren);
           }
           dirty = true;
         }
@@ -770,11 +844,11 @@ export class CartSidebar {
     const parts: string[] = [];
 
     const origin = this.resolveOriginLabel();
-    if (origin) parts.push(`Origen: ${this.escape(origin)}`);
+    if (origin) parts.push(this.escape(origin));
 
     if (ctx.destinationText) {
       let dest = ctx.destinationText.trim();
-      // Avoid "Origen: MDE · MDE → CTG" duplication when we already show origin.
+      // Avoid "MDE · MDE → CTG" duplication when we already show origin.
       if (origin && /→|->/.test(dest)) {
         const right = dest.split(/\s*→\s*|\s*->\s*/).pop()?.trim();
         if (right) dest = right;
@@ -791,22 +865,20 @@ export class CartSidebar {
 
     const nights = ctx.nights && ctx.nights > 0 ? ctx.nights : this.computeNights(ctx.checkIn, ctx.checkOut);
     if (nights && nights > 0) {
-      parts.push(`${nights} noche${nights !== 1 ? 's' : ''}`);
+      parts.push(`${nights}n`);
     }
 
     const pax: string[] = [];
-    if (ctx.totalAdults > 0) {
-      pax.push(`${ctx.totalAdults} adulto${ctx.totalAdults !== 1 ? 's' : ''}`);
-    }
+    if (ctx.totalAdults > 0) pax.push(`${ctx.totalAdults} Adt`);
     if (ctx.totalChildren > 0) {
-      pax.push(`${ctx.totalChildren} niño${ctx.totalChildren !== 1 ? 's' : ''}`);
+      const ages = this.normalizeChildAges(ctx.childrenAges);
+      const agesHint = ages.length > 0 ? ` (${ages.join(', ')})` : '';
+      pax.push(`${ctx.totalChildren} Chd${agesHint}`);
     }
     const flight = this.items.find((i): i is FlightCartItem => i.type === 'flight');
     const infants = flight?.infants ?? 0;
-    if (infants > 0) {
-      pax.push(`${infants} bebé${infants !== 1 ? 's' : ''}`);
-    }
-    if (pax.length) parts.push(pax.join(', '));
+    if (infants > 0) pax.push(`${infants} Inf`);
+    if (pax.length) parts.push(pax.join(' · '));
 
     return parts.join(' · ');
   }
@@ -992,13 +1064,26 @@ export class CartSidebar {
           hotels.length === 0
             ? `<div class="tce-compare-hotel-empty">Sin hoteles — marca Opción ${i + 1} en un hotel</div>`
             : hotels
-                .map(
-                  (h) => `
+                .map((h) => {
+                  const rate = h.selectedRate;
+                  const roomRaw = rate.roomType?.trim() || '';
+                  const roomShort =
+                    roomRaw.length > 70 ? `${roomRaw.slice(0, 70)}…` : roomRaw;
+                  const board = rate.boardBasis?.trim() || '';
+                  const roomLine = [roomShort, board].filter(Boolean).join(' · ');
+                  return `
             <div class="tce-compare-hotel-line">
               <span class="tce-compare-hotel-name">${this.escape(h.hotelName)}</span>
+              ${
+                roomLine
+                  ? `<span class="tce-compare-hotel-room" title="${this.escape(
+                      [rate.roomType, rate.boardBasis].filter(Boolean).join(' · ')
+                    )}">${this.escape(roomLine)}</span>`
+                  : ''
+              }
               <span class="tce-compare-hotel-nights">${h.nights}n · ${this.escape(h.checkIn)}→${this.escape(h.checkOut)}</span>
-            </div>`
-                )
+            </div>`;
+                })
                 .join('');
         const prices = pricedOpt
           ? `
@@ -1149,8 +1234,8 @@ export class CartSidebar {
       }
       .tce-tab:hover { background: #1d4ed8; }
       .tce-tab--open { right: 340px; }
-      .tce-tab--open.tce-tab--wide { right: 560px; }
-      .tce-tab--open.tce-tab--compare { right: 720px; }
+      .tce-tab--open.tce-tab--wide { right: 700px; }
+      .tce-tab--open.tce-tab--compare { right: 900px; }
 
       .tce-badge {
         display: inline-block;
@@ -1180,45 +1265,89 @@ export class CartSidebar {
         transition: transform 0.25s ease, width 0.25s ease;
       }
       .tce-panel--open { transform: translateX(0); }
-      .tce-panel--wide { width: 560px; }
-      .tce-panel--compare { width: 720px; }
+      .tce-panel--wide { width: 700px; }
+      .tce-panel--compare { width: 900px; }
 
       .tce-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 18px;
+        flex-wrap: wrap;
+        padding: 6px 10px;
         background: #1e40af;
         color: #fff;
         flex-shrink: 0;
-        gap: 8px;
+        gap: 6px 8px;
       }
       .tce-header-title {
         display: flex;
         align-items: baseline;
         flex-wrap: nowrap;
-        gap: 6px;
+        gap: 5px;
         min-width: 0;
+        flex: 0 1 auto;
         overflow: hidden;
       }
       .tce-header h2 {
         margin: 0;
-        font-size: 16px;
+        font-size: 13px;
         font-weight: 700;
         white-space: nowrap;
         flex-shrink: 0;
       }
-      .tce-header span {
-        font-size: 13px;
+      .tce-header-meta {
+        font-size: 11px;
         opacity: 0.85;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .tce-header-client {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex: 1 1 120px;
+        min-width: 90px;
+        max-width: 260px;
+      }
+      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-client {
+        flex: 1 1 calc(100% - 72px);
+        max-width: none;
+        order: 3;
+      }
+      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-actions {
+        order: 2;
+        margin-left: auto;
+      }
+      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-hotel-options-toggle {
+        order: 4;
+      }
+      .tce-header-client label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        opacity: 0.9;
+        flex-shrink: 0;
+      }
+      .tce-client-input {
+        flex: 1;
+        min-width: 0;
+        border: 1px solid rgba(255,255,255,0.35);
+        border-radius: 5px;
+        padding: 4px 7px;
+        font-size: 12px;
+        color: #0f172a;
+        background: #fff;
+      }
+      .tce-client-input:focus {
+        outline: none;
+        border-color: #facc15;
+        box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35);
+      }
       .tce-header-actions {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
         flex-shrink: 0;
       }
       .tce-hotel-options-toggle {
@@ -1226,8 +1355,8 @@ export class CartSidebar {
         align-items: center;
         gap: 4px;
         flex-shrink: 0;
-        padding: 4px 6px;
-        border-radius: 6px;
+        padding: 3px 6px;
+        border-radius: 5px;
         background: rgba(255,255,255,0.14);
         font-size: 10px;
         font-weight: 600;
@@ -1240,6 +1369,125 @@ export class CartSidebar {
         width: 12px;
         height: 12px;
         accent-color: #facc15;
+      }
+
+      /* Route + TRM on one compact row */
+      .tce-meta-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px 8px;
+        padding: 5px 10px;
+        background: #eff6ff;
+        border-bottom: 1px solid #dbeafe;
+        flex-shrink: 0;
+        min-height: 0;
+      }
+      .tce-meta-route {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 11px;
+        color: #1e3a8a;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tce-meta-route--guide {
+        font-size: 12.5px;
+        font-weight: 700;
+        color: #1e3a8a;
+      }
+      .tce-meta-route-label {
+        font-weight: 800;
+        color: #1d4ed8;
+        margin-right: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        font-size: 0.92em;
+      }
+      .tce-meta-route--guide .tce-meta-route-label {
+        color: #1e40af;
+      }
+      .tce-trm-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 5px;
+        flex: 0 0 auto;
+        padding: 0;
+        background: transparent;
+        border: none;
+        font-size: 11px;
+        color: #92400e;
+      }
+      .tce-trm-bar label { font-weight: 700; white-space: nowrap; }
+      .tce-trm-input {
+        width: 64px;
+        border: 1px solid #fbbf24;
+        border-radius: 5px;
+        padding: 3px 5px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #78350f;
+        background: #fffbeb;
+      }
+      .tce-trm-hint {
+        display: none;
+      }
+      .tce-panel--wide .tce-trm-hint,
+      .tce-panel--compare .tce-trm-hint {
+        display: inline;
+        flex: 0 1 auto;
+        font-size: 10px;
+        color: #a16207;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
+      }
+      .tce-trm-refresh {
+        border: 1px solid #fbbf24;
+        background: #fffbeb;
+        color: #92400e;
+        border-radius: 5px;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 3px 5px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .tce-trm-refresh:hover { background: #fef3c7; }
+      .tce-currency-toggle {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #fbbf24;
+        border-radius: 5px;
+        overflow: hidden;
+        flex-shrink: 0;
+        background: #fffbeb;
+      }
+      .tce-currency-btn {
+        border: none;
+        background: transparent;
+        color: #a16207;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 3px 6px;
+        cursor: pointer;
+        font-family: inherit;
+        line-height: 1.2;
+      }
+      .tce-currency-btn + .tce-currency-btn {
+        border-left: 1px solid #fde68a;
+      }
+      .tce-currency-btn--active {
+        background: #fde047;
+        color: #78350f;
+      }
+      .tce-currency-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
       .tce-compare-hotels {
         margin-top: 10px;
@@ -1319,6 +1567,13 @@ export class CartSidebar {
         border-bottom: 1px dashed #e2e8f0;
       }
       .tce-compare-hotel-name { display: block; font-weight: 600; }
+      .tce-compare-hotel-room {
+        display: block;
+        color: #475569;
+        font-size: 10px;
+        margin-top: 2px;
+        line-height: 1.35;
+      }
       .tce-compare-hotel-nights { display: block; color: #64748b; font-size: 10px; margin-top: 2px; }
       .tce-compare-hotel-empty {
         font-size: 11px;
@@ -1398,86 +1653,6 @@ export class CartSidebar {
         letter-spacing: -1px;
       }
 
-      .tce-trm-bar {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-        padding: 8px 14px;
-        background: #fffbeb;
-        border-bottom: 1px solid #fde68a;
-        flex-shrink: 0;
-        font-size: 12px;
-        color: #92400e;
-      }
-      .tce-trm-bar label { font-weight: 700; white-space: nowrap; }
-      .tce-trm-input {
-        width: 88px;
-        border: 1px solid #fbbf24;
-        border-radius: 6px;
-        padding: 4px 6px;
-        font-size: 12px;
-        font-weight: 700;
-        color: #78350f;
-        background: #fff;
-      }
-      .tce-trm-hint {
-        font-size: 10px;
-        color: #a16207;
-        flex: 1 1 100%;
-        min-width: 0;
-        line-height: 1.35;
-      }
-      /* Wide panel: hint stays on the same row as TRM controls. */
-      .tce-panel--wide .tce-trm-hint {
-        flex: 1 1 auto;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .tce-trm-refresh {
-        border: 1px solid #fbbf24;
-        background: #fff;
-        color: #92400e;
-        border-radius: 6px;
-        font-size: 10px;
-        font-weight: 700;
-        padding: 4px 6px;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-      .tce-trm-refresh:hover { background: #fef3c7; }
-      .tce-currency-toggle {
-        display: inline-flex;
-        align-items: center;
-        border: 1px solid #fbbf24;
-        border-radius: 6px;
-        overflow: hidden;
-        flex-shrink: 0;
-        background: #fff;
-      }
-      .tce-currency-btn {
-        border: none;
-        background: transparent;
-        color: #a16207;
-        font-size: 10px;
-        font-weight: 700;
-        padding: 4px 7px;
-        cursor: pointer;
-        font-family: inherit;
-        line-height: 1.2;
-      }
-      .tce-currency-btn + .tce-currency-btn {
-        border-left: 1px solid #fde68a;
-      }
-      .tce-currency-btn--active {
-        background: #fef3c7;
-        color: #78350f;
-      }
-      .tce-currency-btn:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-      }
       .tce-ta-block {
         margin-top: 10px;
         padding-top: 10px;
@@ -1583,60 +1758,6 @@ export class CartSidebar {
         color: #1e40af;
       }
 
-      .tce-search-summary {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        padding: 8px 18px;
-        background: #eff6ff;
-        border-bottom: 1px solid #dbeafe;
-        flex-shrink: 0;
-      }
-      .tce-search-summary-label {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: #2563eb;
-      }
-      .tce-search-summary-text {
-        font-size: 12px;
-        color: #1e3a8a;
-        line-height: 1.4;
-      }
-
-      .tce-client-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 18px;
-        background: #f8fafc;
-        border-bottom: 1px solid #e2e8f0;
-        flex-shrink: 0;
-      }
-      .tce-client-row label {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.4px;
-        color: #475569;
-        flex-shrink: 0;
-      }
-      .tce-client-input {
-        flex: 1;
-        min-width: 0;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        padding: 6px 8px;
-        font-size: 13px;
-        color: #0f172a;
-        background: #fff;
-      }
-      .tce-client-input:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-      }
-
       .tce-body {
         flex: 1;
         overflow-y: auto;
@@ -1652,7 +1773,7 @@ export class CartSidebar {
       }
       .tce-panel-tab {
         flex: 1;
-        padding: 10px 6px;
+        padding: 8px 6px;
         border: none;
         background: transparent;
         font-size: 11px;
@@ -2690,23 +2811,40 @@ export class CartSidebar {
     const effTrm = this.getEffectiveTrm();
     const trmEffHint =
       this.trmRate > 0
-        ? ` · usada ${Math.round(effTrm).toLocaleString('es-CO')} (+${Math.round(this.trmSuplemento).toLocaleString('es-CO')} sup.)`
+        ? `${Math.round(effTrm).toLocaleString('es-CO')} (+${Math.round(this.trmSuplemento).toLocaleString('es-CO')})`
         : '';
+
+    const ctx = this.headerSearchContext();
+    const routeSummary =
+      (ctx && this.formatSearchSummary(ctx)) ||
+      (this.resolveOriginLabel() ? this.escape(this.resolveOriginLabel()!) : '');
+    const routeLabel = this.tripGuide ? 'Guía' : routeSummary ? 'Ruta' : '';
 
     root.innerHTML = `
       <button class="tce-tab ${this.isOpen ? 'tce-tab--open' : ''}${tabWideClass}" data-action="toggle">
-        🛒 Carrito
+        🛒 Asistente
         ${this.items.length > 0 ? `<span class="tce-badge">${this.items.length}</span>` : ''}
       </button>
       <div class="tce-panel ${this.isOpen ? 'tce-panel--open' : ''}${wideClass}">
         <div class="tce-header">
           <div class="tce-header-title">
-            <h2>Mi Carrito</h2>
-            <span>· ${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
+            <h2>Asistente de cotización</h2>
+            <span class="tce-header-meta">${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
           </div>
-          <label class="tce-hotel-options-toggle" title="Comparar cada hotel como una alternativa con su propio total">
+          <div class="tce-header-client">
+            <label for="tce-client-input">Cliente</label>
+            <input
+              id="tce-client-input"
+              class="tce-client-input"
+              type="text"
+              maxlength="120"
+              placeholder="Nombre (historial)"
+              value="${this.escape(this.clientName)}"
+            />
+          </div>
+          <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
             <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
-            Comparar hoteles
+            Comparar
           </label>
           <div class="tce-header-actions">
             <button type="button" class="tce-width-toggle" data-action="toggle-width"
@@ -2714,47 +2852,34 @@ export class CartSidebar {
             <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
           </div>
         </div>
-        <div class="tce-trm-bar">
-          <label for="tce-trm-input">TRM</label>
-          <input id="tce-trm-input" class="tce-trm-input" type="number" min="0" step="0.01"
-            value="${trmValue}" placeholder="COP/USD" />
-          <button type="button" class="tce-trm-refresh" data-action="refresh-trm"
-            title="Actualizar TRM desde dolar-colombia.com">TRM web</button>
-          <div class="tce-currency-toggle" title="Unificar precios del carrito en una moneda (usa TRM)">
-            <button type="button" class="tce-currency-btn ${this.displayCurrency === 'COP' ? 'tce-currency-btn--active' : ''}"
-              data-action="display-currency" data-currency="COP">COP</button>
-            <button type="button" class="tce-currency-btn ${this.displayCurrency === 'USD' ? 'tce-currency-btn--active' : ''}"
-              data-action="display-currency" data-currency="USD"
-              ${this.canUseDisplayCurrency('USD') ? '' : 'disabled title="Necesitas TRM para ver todo en USD"'}
-            >USD</button>
+        <div class="tce-meta-bar">
+          <div class="tce-meta-route${this.tripGuide ? ' tce-meta-route--guide' : ''}" title="${routeSummary}">
+            ${
+              routeSummary
+                ? `${routeLabel ? `<span class="tce-meta-route-label">${routeLabel}</span>` : ''}${routeSummary}`
+                : '<span class="tce-meta-route-label">Sin ruta</span> Agrega un vuelo u hotel'
+            }
           </div>
-          <span class="tce-trm-hint">Vista ${this.displayCurrency}${trmEffHint} · <a href="${TRM_REFERENCE_PAGE}" target="_blank" rel="noopener" style="color:#92400e">dolar-colombia.com</a></span>
-        </div>
-        ${(() => {
-          const ctx = this.headerSearchContext();
-          const summary =
-            ctx && this.formatSearchSummary(ctx)
-              ? this.formatSearchSummary(ctx)
-              : this.resolveOriginLabel()
-                ? `Origen: ${this.escape(this.resolveOriginLabel()!)}`
-                : '';
-          return summary
-            ? `<div class="tce-search-summary">
-                 <span class="tce-search-summary-label">${this.tripGuide ? 'Guía del viaje' : 'Búsqueda actual'}</span>
-                 <span class="tce-search-summary-text">${summary}</span>
-               </div>`
-            : '';
-        })()}
-        <div class="tce-client-row">
-          <label for="tce-client-input">CLIENTE:</label>
-          <input
-            id="tce-client-input"
-            class="tce-client-input"
-            type="text"
-            maxlength="120"
-            placeholder="Nombre del cliente (solo historial)"
-            value="${this.escape(this.clientName)}"
-          />
+          <div class="tce-trm-bar">
+            <label for="tce-trm-input">TRM</label>
+            <input id="tce-trm-input" class="tce-trm-input" type="number" min="0" step="0.01"
+              value="${trmValue}" placeholder="COP" title="TRM del día" />
+            <button type="button" class="tce-trm-refresh" data-action="refresh-trm"
+              title="Actualizar TRM desde dolar-colombia.com">web</button>
+            <div class="tce-currency-toggle" title="Unificar precios en una moneda">
+              <button type="button" class="tce-currency-btn ${this.displayCurrency === 'COP' ? 'tce-currency-btn--active' : ''}"
+                data-action="display-currency" data-currency="COP">COP</button>
+              <button type="button" class="tce-currency-btn ${this.displayCurrency === 'USD' ? 'tce-currency-btn--active' : ''}"
+                data-action="display-currency" data-currency="USD"
+                ${this.canUseDisplayCurrency('USD') ? '' : 'disabled title="Necesitas TRM para ver todo en USD"'}
+              >USD</button>
+            </div>
+            ${
+              trmEffHint
+                ? `<span class="tce-trm-hint" title="TRM usada = día + suplemento · ${TRM_REFERENCE_PAGE}">${trmEffHint}</span>`
+                : ''
+            }
+          </div>
         </div>
         <nav class="tce-panel-tabs" role="tablist">
           ${tab('items', '🛒 Productos')}

@@ -12,6 +12,26 @@ Formato por entrada:
 
 ---
 
+## 2026-08-06 — Edades de niños en la guía
+
+- **Changed**: si hay edades de niños (hotel/traslado/BM), la guía las muestra (`1 Chd (8)`); si no hay edades, solo el conteo de niños.
+- **Docs**: `docs/CONTEXT.md` — edades enriquecen `tce_trip_guide`.
+
+## 2026-08-06 — Opciones: habitación y alimentación
+
+- **Changed**: en Comparar hoteles, cada opción muestra habitación y tipo de alimentación además de noches/fechas.
+- **Changed**: la guía del viaje en el encabezado resalta más (negrita y tamaño).
+
+## 2026-08-06 — Encabezado compacto del asistente
+
+- **Changed**: panel lateral renombrado a **Asistente de cotización**; cliente en la barra azul; ruta/guía + TRM en una sola fila; anchos ampliados (700 / 900 px) para ganar espacio de productos.
+- **Changed**: resumen de ruta más corto (`Bogotá · Santa Marta · fechas · 3n · 2 Adt · 1 Chd`).
+
+## 2026-08-06 — Handoff vuelo → hotel (fechas/pax) (v1.0.34)
+
+- **Fixed**: tras agregar **cualquier** vuelo (Avianca, Wingo, Despegar, XNet, JetSMART → guía del viaje), al abrir hotel en BookingMotor se precargan entrada/salida, noches y ocupación (`2 Adt · 1 Chd`); el destino solo se sugiere en el aviso (no se auto-escribe).
+- **Docs**: `SearchSync` usa `tce_trip_guide` como fallback cuando aún no hay `tce_last_search` de hotel (independiente del proveedor aéreo).
+
 ## 2026-08-06 — Wingo, guía de viaje y opciones multi-hotel (v1.0.34)
 
 - **Added**: Comparar hoteles con varias opciones (columnas + **Nueva opción**); un hotel puede ir en más de una; total también visible sin comparar.

@@ -159,7 +159,7 @@ Toggle `tce_hotels_as_options`. Grupos en `tce_hotel_compare_groups`: cada grupo
 - Persistencia: `chrome.storage.local`:
   - `tce_cart_items` → productos del carrito.
   - `tce_last_search` → `SearchContext` hotel/transfer/activity/insurance (sync BM entre pestañas; no vuelos).
-  - `tce_trip_guide` → primera búsqueda **aérea** del viaje (fechas/pax/ruta); encabezado **Guía del viaje**. Hotel solo encabeza si aún no hay guía de vuelo. Vaciar carrito la borra.
+  - `tce_trip_guide` → primera búsqueda **aérea** del viaje (cualquier proveedor: Avianca, Wingo, Despegar, XNet, JetSMART — fechas/pax/ruta); encabezado **Guía del viaje**. Las **edades de niños** se añaden a la guía cuando el asesor las indica en hotel/traslado/BM (si no hay edades, no se muestran). También alimenta el prefill de hotel/traslado en BM si aún no hay `tce_last_search` más reciente. Hotel solo encabeza si aún no hay guía de vuelo. Vaciar carrito la borra.
   - `tce_fees` → valores de los fees (`Record<feeId, number>`).
   - `tce_client_name` → cliente de la cotización (historial; no WhatsApp).
   - `tce_pending_quote` / `tce_quote_seq` → número de cotización de la sesión (`CAR001`…).

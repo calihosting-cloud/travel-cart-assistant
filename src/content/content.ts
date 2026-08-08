@@ -421,13 +421,21 @@ function applyFlightSearchSummary(flight: {
     flight.title ||
     undefined;
 
-  // Sticky trip guide (first flight wins). Keeps BM `tce_last_search` untouched.
+  // Sticky trip guide for ANY airline (first flight wins). Keeps BM
+  // `tce_last_search` untouched so hotel→transfer sync stays intact; SearchSync
+  // reads trip guide as fallback to prefill hotel dates/pax after a flight-first flow.
   const ctx: SearchContext = {
     sourceType: 'flight',
     checkIn: isoToDdMmYyyy(flight.departureDate),
     checkOut: isoToDdMmYyyy(flight.returnDate),
     nights: nightsBetweenIso(flight.departureDate, flight.returnDate),
-    rooms: [],
+    rooms: [
+      {
+        adults: flight.adults,
+        children: flight.children,
+        childrenAges: [],
+      },
+    ],
     totalAdults: flight.adults,
     totalChildren: flight.children,
     childrenAges: [],

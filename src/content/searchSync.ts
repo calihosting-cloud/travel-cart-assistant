@@ -3,6 +3,7 @@ import {
   BookingMotorSearchFormSync,
   SearchFormType,
 } from '../engine/providers/bookingmotor/BookingMotorSearchFormSync';
+import { TRIP_GUIDE_KEY } from '../shared/tripGuide';
 
 const STORAGE_KEY = 'tce_last_search';
 const PREFILLED_ATTR = 'data-tce-prefilled';
@@ -16,13 +17,18 @@ const CONTEXT_TTL_MS = 1000 * 60 * 60 * 12; // ignore contexts older than 12h
  * - Captures the active search form whenever the advisor edits it.
  * - When a different (empty) form becomes visible, pre-fills the shared fields
  *   (dates, passengers, children ages, nationality) and shows a hint banner.
+ * - If there is no BM search yet, falls back to `tce_trip_guide` (first flight)
+ *   so hotel/transfer open with the same dates and pax.
  *
  * Destination is never auto-written because transfers need backend
  * pickup/dropoff IDs that can't be derived from a hotel name.
  */
 export class SearchSyncController {
   private sync = new BookingMotorSearchFormSync();
-  private context: SearchContext | null = null;
+  /** Last BookingMotor hotel/transfer/… capture (`tce_last_search`). */
+  private bmContext: SearchContext | null = null;
+  /** Sticky first-flight guide (`tce_trip_guide`) for flight → hotel handoff. */
+  private tripGuide: SearchContext | null = null;
   private isApplying = false;
   private captureTimer: number | null = null;
 
@@ -35,16 +41,26 @@ export class SearchSyncController {
 
     try {
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'local' || !changes[STORAGE_KEY]) return;
-        const next = changes[STORAGE_KEY].newValue as SearchContext | undefined;
-        if (!next) {
-          this.context = null;
-          return;
+        if (area !== 'local') return;
+        let dirty = false;
+        if (changes[STORAGE_KEY]) {
+          const next = changes[STORAGE_KEY].newValue as SearchContext | undefined;
+          if (!next || next.sourceType === 'flight') {
+            this.bmContext = null;
+          } else if (Date.now() - next.savedAt < CONTEXT_TTL_MS) {
+            this.bmContext = next;
+          }
+          dirty = true;
         }
-        if (next.sourceType === 'flight') return;
-        if (Date.now() - next.savedAt >= CONTEXT_TTL_MS) return;
-        this.context = next;
-        this.tryPrefillVisibleForm();
+        if (changes[TRIP_GUIDE_KEY]) {
+          const next = changes[TRIP_GUIDE_KEY].newValue as SearchContext | undefined;
+          this.tripGuide =
+            next?.sourceType === 'flight' && Date.now() - next.savedAt < CONTEXT_TTL_MS
+              ? next
+              : null;
+          dirty = true;
+        }
+        if (dirty) this.tryPrefillVisibleForm();
       });
     } catch {
       // storage.onChanged unavailable (e.g. test harness)
@@ -63,6 +79,19 @@ export class SearchSyncController {
     // or they would overwrite a good hotel→transfer context.
     this.captureBestAvailableForm({ requireDestination: true });
     this.tryPrefillVisibleForm();
+  }
+
+  /**
+   * Prefill source: newer BM search wins; otherwise the sticky flight guide
+   * (flight → hotel / transfer handoff).
+   */
+  private resolvePrefillContext(): SearchContext | null {
+    const bm = this.bmContext;
+    const guide = this.tripGuide;
+    if (bm && guide) {
+      return (bm.savedAt ?? 0) >= (guide.savedAt ?? 0) ? bm : guide;
+    }
+    return bm ?? guide;
   }
 
   private onFormMutated = (event: Event): void => {
@@ -117,14 +146,14 @@ export class SearchSyncController {
   }
 
   private persistContext(context: SearchContext): void {
-    this.context = context;
+    this.bmContext = context;
     void this.saveContext(context);
   }
 
   private tryPrefillVisibleForm(): void {
-    if (this.isApplying || !this.context) return;
-    // Flight summaries share storage for the cart header but must never drive BM forms.
-    if (this.context.sourceType === 'flight') return;
+    if (this.isApplying) return;
+    const context = this.resolvePrefillContext();
+    if (!context) return;
 
     const visible = this.sync.getVisibleForm(document);
     if (!visible) return;
@@ -136,7 +165,7 @@ export class SearchSyncController {
     // forms, so "has a date" is NOT the same as "advisor already filled this".
     // Only skip when the form already matches our stored context, or the
     // advisor already typed a destination (hotel name / pickup / dropoff).
-    if (this.formAlreadySynced(form, type, this.context)) {
+    if (this.formAlreadySynced(form, type, context)) {
       form.setAttribute(PREFILLED_ATTR, '1');
       return;
     }
@@ -144,22 +173,22 @@ export class SearchSyncController {
 
     this.isApplying = true;
     try {
-      const changed = this.sync.apply(form, type, this.context);
+      const changed = this.sync.apply(form, type, context);
       form.setAttribute(PREFILLED_ATTR, '1');
-      if (changed) this.showBanner(form, type, this.context);
+      if (changed) this.showBanner(form, type, context);
 
-      if (type === 'transfer' && this.context.checkOut) {
-        this.watchTransferCheckout(form, this.context.checkOut);
+      if (type === 'transfer' && context.checkOut) {
+        this.watchTransferCheckout(form, context.checkOut);
         // BookingMotor may overwrite checkout = check-in + 1 after our apply.
-        const expectedCheckout = this.context.checkOut;
+        const expectedCheckout = context.checkOut;
         window.setTimeout(() => this.reapplyTransferCheckout(form, expectedCheckout), 50);
       }
 
       // Age selects are rendered after the children count changes — fill on next tick.
-      if (this.context.totalChildren > 0 || this.context.childrenAges.length > 0) {
+      if (context.totalChildren > 0 || context.childrenAges.length > 0) {
         window.setTimeout(() => {
           try {
-            this.sync.apply(form, type, this.context!);
+            this.sync.apply(form, type, context);
           } catch {
             // ignore
           }
@@ -306,23 +335,29 @@ export class SearchSyncController {
     if (existing) existing.remove();
 
     const pax: string[] = [];
-    if (ctx.totalAdults > 0) pax.push(`${ctx.totalAdults} adulto${ctx.totalAdults !== 1 ? 's' : ''}`);
+    if (ctx.totalAdults > 0) pax.push(`${ctx.totalAdults} Adt`);
     if (ctx.totalChildren > 0) {
       const ages =
         ctx.childrenAges.length > 0 ? ` (${ctx.childrenAges.join(', ')})` : '';
-      pax.push(`${ctx.totalChildren} niño${ctx.totalChildren !== 1 ? 's' : ''}${ages}`);
+      pax.push(`${ctx.totalChildren} Chd${ages}`);
     }
 
     const bits: string[] = [];
-    if (ctx.checkIn && ctx.checkOut) {
+    if (type === 'hotel' && ctx.checkIn && ctx.checkOut) {
+      bits.push(`entrada ${ctx.checkIn}`);
+      bits.push(`salida ${ctx.checkOut}`);
+    } else if (ctx.checkIn && ctx.checkOut) {
       bits.push(`ida ${ctx.checkIn}`);
       bits.push(`vuelta ${ctx.checkOut}`);
     } else if (ctx.checkIn) {
-      bits.push(`ida ${ctx.checkIn}`);
+      bits.push(type === 'hotel' ? `entrada ${ctx.checkIn}` : `ida ${ctx.checkIn}`);
     } else if (ctx.checkOut) {
-      bits.push(`vuelta ${ctx.checkOut}`);
+      bits.push(type === 'hotel' ? `salida ${ctx.checkOut}` : `vuelta ${ctx.checkOut}`);
     }
-    if (pax.length) bits.push(pax.join(', '));
+    if (ctx.nights && ctx.nights > 0 && type === 'hotel') {
+      bits.push(`${ctx.nights} noche${ctx.nights !== 1 ? 's' : ''}`);
+    }
+    if (pax.length) bits.push(pax.join(' · '));
 
     const note = doc.createElement('div');
     note.className = 'tce-prefill-note';
@@ -341,16 +376,18 @@ export class SearchSyncController {
       'line-height:1.4',
     ].join(';'));
 
+    const fromFlight = ctx.sourceType === 'flight';
     const destHint =
       type === 'transfer' && ctx.destinationText
         ? ` Escribe el destino en <strong>Desde/Hasta</strong> (búsqueda previa: ${this.escape(ctx.destinationText)}).`
         : type === 'hotel' && ctx.destinationText
-          ? ` Verifica el <strong>Destino</strong> (búsqueda previa: ${this.escape(ctx.destinationText)}).`
+          ? ` Escribe el <strong>Destino</strong> (guía: ${this.escape(ctx.destinationText)}).`
           : '';
+    const sourceLabel = fromFlight ? 'guía del viaje (vuelo)' : 'búsqueda anterior';
 
     note.innerHTML =
       `<span><span style="color:#dc2626;font-weight:700;margin-right:4px" title="Advertencia" aria-label="Advertencia">▲</span>` +
-      `Precargamos ${bits.length ? this.escape(bits.join(' · ')) : 'los datos'} de tu búsqueda anterior.` +
+      `Precargamos ${bits.length ? this.escape(bits.join(' · ')) : 'los datos'} de tu ${sourceLabel}.` +
       `${destHint}</span>` +
       `<button type="button" class="tce-prefill-close" aria-label="Cerrar" ` +
       `style="margin-left:auto;background:none;border:none;color:#1e3a8a;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;">✕</button>`;
@@ -372,15 +409,22 @@ export class SearchSyncController {
 
   private async loadContext(): Promise<void> {
     try {
-      const result = await chrome.storage.local.get(STORAGE_KEY);
+      const result = await chrome.storage.local.get([STORAGE_KEY, TRIP_GUIDE_KEY]);
       const stored = result[STORAGE_KEY] as SearchContext | undefined;
-      // Ignore flight-only summaries — they must not drive BM form prefill.
       if (
         stored &&
         stored.sourceType !== 'flight' &&
         Date.now() - stored.savedAt < CONTEXT_TTL_MS
       ) {
-        this.context = stored;
+        this.bmContext = stored;
+      }
+      const guide = result[TRIP_GUIDE_KEY] as SearchContext | undefined;
+      if (
+        guide &&
+        guide.sourceType === 'flight' &&
+        Date.now() - guide.savedAt < CONTEXT_TTL_MS
+      ) {
+        this.tripGuide = guide;
       }
     } catch {
       // storage unavailable (e.g. test harness)
