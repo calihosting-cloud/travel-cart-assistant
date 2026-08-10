@@ -12,6 +12,11 @@ Formato por entrada:
 
 ---
 
+## 2026-08-09 — Checkpoint **restaurar** (antes de cambios grandes)
+
+- **Docs**: guía `docs/RESTAURAR.md` y regla Cursor `.cursor/rules/restaurar.mdc` — la palabra clave **restaurar** vuelve al tag/rama `restaurar` / `backup/restaurar`.
+- **Added**: documentación de base de datos en `docs/database/` incluida en el checkpoint.
+
 ## 2026-07-31 — Comparar hoteles y ocupación por habitación (v1.0.33)
 
 - **Changed**: el toggle «Hoteles por opción» pasa a llamarse **Comparar hoteles**.

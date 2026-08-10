@@ -1,0 +1,20 @@
+---
+description: Palabra clave "restaurar" — volver al checkpoint Git seguro antes de cambios grandes
+alwaysApply: true
+---
+
+# Palabra clave: restaurar
+
+Cuando el usuario diga **restaurar**, pida **volver al checkpoint**, o mencione restaurar la versión anterior marcada:
+
+1. Leer `docs/RESTAURAR.md` y seguir ese procedimiento.
+2. **Confirmar** antes de cualquier comando destructivo (`reset --hard`, borrar cambios, force push).
+3. Marcas oficiales:
+   - Tag: `restaurar`
+   - Rama: `backup/restaurar`
+4. Flujo por defecto tras confirmación:
+   - Si hay trabajo no guardado que el usuario quiera conservar: crear `salvage/...` o stash antes del reset.
+   - `git checkout main` (o la rama en la que pidió restaurar).
+   - `git reset --hard restaurar`
+5. **Nunca** hacer `git push --force` / `--force-with-lease` salvo que el usuario lo pida explícitamente.
+6. Tras restaurar, mostrar `git status` y el commit (`git log -1 --oneline`) para verificar.
