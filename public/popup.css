@@ -41,6 +41,24 @@ header p {
   line-height: 1.35;
 }
 
+.btn-open-asistente {
+  margin-top: 10px;
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-open-asistente:hover {
+  background: rgba(255,255,255,0.22);
+}
+
 .tabs {
   display: flex;
   border-bottom: 1px solid var(--border);

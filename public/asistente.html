@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asistente de cotización — Carrito GT</title>
+  <link rel="stylesheet" href="asistente.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header-main">
+      <h1>Asistente de cotización</h1>
+      <p class="app-sub">
+        Espacio de trabajo amplio · sincronizado con el carrito lateral
+        <span id="sync-pill" class="pill">Sync OK</span>
+      </p>
+    </div>
+    <div class="app-header-trm">
+      <label for="header-trm-input">TRM</label>
+      <input id="header-trm-input" class="trm-input" type="number" min="0" step="0.01" placeholder="COP" title="TRM del día (dolar-colombia.com)" />
+      <button type="button" class="trm-refresh" data-action="refresh-trm" title="Actualizar desde dolar-colombia.com">web</button>
+      <span id="header-trm-eff" class="trm-eff" title="TRM usada = día + suplemento"></span>
+      <div class="currency-toggle" title="Unificar precios en una moneda">
+        <button type="button" class="currency-btn" data-display-currency="COP">COP</button>
+        <button type="button" class="currency-btn" data-display-currency="USD">USD</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-toolbar">
+    <label class="toolbar-field">
+      Cliente
+      <input id="header-client" type="text" maxlength="120" placeholder="Nombre (historial)" />
+    </label>
+    <div class="toolbar-pax" id="header-pax" title="Viajeros del viaje">—</div>
+    <div class="toolbar-route" id="meta-route">Sin ruta</div>
+    <label class="toolbar-compare" title="Comparar cada opción de hotel con su propio total">
+      <input type="checkbox" id="hotels-as-options" />
+      Comparar hoteles
+    </label>
+    <span id="meta-items" class="toolbar-items">0 productos</span>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
+    <button type="button" class="tab" data-tab="carrito" role="tab" aria-selected="false">Carrito</button>
+    <button type="button" class="tab" data-tab="whatsapp" role="tab" aria-selected="false">WhatsApp</button>
+    <button type="button" class="tab" data-tab="historial" role="tab" aria-selected="false">Historial</button>
+    <button type="button" class="tab" data-tab="config" role="tab" aria-selected="false">Config</button>
+  </nav>
+
+  <main class="main main--wide">
+    <section id="panel-dashboard" class="panel active" role="tabpanel">
+      <p class="hint">Resumen desde el historial local (chrome.storage). Se actualiza al cotizar.</p>
+      <div class="stat-grid" id="dash-stats"></div>
+      <div class="two-col">
+        <div class="card">
+          <h2>Destinos frecuentes</h2>
+          <ul id="dash-destinos" class="plain-list"></ul>
+        </div>
+        <div class="card">
+          <h2>Últimas cotizaciones</h2>
+          <ul id="dash-recent" class="plain-list"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-carrito" class="panel" role="tabpanel">
+      <div class="carrito-split">
+        <div class="carrito-left">
+          <div class="card card--fill">
+            <div class="card-head">
+              <h2>Productos</h2>
+              <div class="card-head-actions">
+                <button type="button" class="btn-ghost btn-sm" data-action="add-hotel-option" id="btn-add-option" hidden>+ Nueva opción</button>
+                <button type="button" class="btn-danger btn-sm" data-action="clear-cart" id="btn-clear-cart" title="Archiva la cotización en historial y vacía el carrito">Vaciar carrito</button>
+              </div>
+            </div>
+            <div id="productos-list" class="item-list"></div>
+            <div id="compare-block" class="compare-block" hidden></div>
+          </div>
+        </div>
+        <div class="carrito-right">
+          <div class="card">
+            <h2>Fees y TA</h2>
+            <div id="total-fees"></div>
+          </div>
+          <div class="card">
+            <h2>Totales</h2>
+            <div id="total-totals"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-whatsapp" class="panel" role="tabpanel">
+      <p class="hint">
+        Puedes editar el texto antes de copiar. Las líneas del catálogo se gestionan en <strong>Config</strong>; aquí marcas cuáles van.
+      </p>
+      <div id="whatsapp-view" class="quote-workspace quote-workspace--stack"></div>
+    </section>
+
+    <section id="panel-historial" class="panel" role="tabpanel">
+      <p class="hint">Historial local de cotizaciones (CAR###).</p>
+      <div id="historial-list" class="item-list"></div>
+    </section>
+
+    <section id="panel-config" class="panel" role="tabpanel">
+      <p class="hint">
+        Líneas de <strong>incluye / no incluye / políticas</strong>, tarifa administrativa y suplemento TRM.
+        También se pueden editar desde el popup del icono de la extensión. Todo persiste en chrome.storage.
+      </p>
+
+      <div class="config-block">
+        <h2>Tarifa administrativa (TA)</h2>
+        <p class="hint" style="margin-top:0">
+          Valores anuales (COP / USD). En Carrito se elige el tipo y se calcula TA × pasajeros.
+        </p>
+        <div class="ta-grid ta-grid--wide">
+          <label>
+            Nacional ida y vuelta (COP)
+            <input id="ta-nacional-rt" type="number" min="0" step="500" />
+          </label>
+          <label>
+            Nacional solo ida (COP)
+            <input id="ta-nacional-ow" type="number" min="0" step="500" />
+          </label>
+          <label>
+            Internacional (USD)
+            <input id="ta-internacional-usd" type="number" min="0" step="1" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-block">
+        <h2>Suplemento TRM</h2>
+        <p class="hint" style="margin-top:0">
+          Pesos que se suman a la TRM del día al convertir USD → COP (colchón si el dólar sube).
+        </p>
+        <div class="ta-grid">
+          <label>
+            Suplemento TRM (COP)
+            <input id="trm-suplemento" type="number" min="0" step="10" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-block">
+        <h2>Tarifa incluye</h2>
+        <div id="list-include" class="line-list"></div>
+        <form class="add-form" data-kind="include">
+          <input name="emoji" type="text" maxlength="4" placeholder="✈️" aria-label="Emoji" />
+          <input name="text" type="text" required placeholder="Nueva línea incluye…" />
+          <button type="submit">+</button>
+        </form>
+      </div>
+
+      <div class="config-block">
+        <h2>Plan no incluye</h2>
+        <div id="list-exclude" class="line-list"></div>
+        <form class="add-form" data-kind="exclude">
+          <input name="emoji" type="text" maxlength="4" placeholder="🚫" aria-label="Emoji" />
+          <input name="text" type="text" required placeholder="Nueva línea no incluye…" />
+          <button type="submit">+</button>
+        </form>
+      </div>
+
+      <div class="config-block">
+        <h2>Nota importante (políticas)</h2>
+        <div id="list-policy" class="line-list"></div>
+        <form class="add-form" data-kind="policy">
+          <input name="emoji" type="text" maxlength="4" placeholder="" aria-label="Emoji" class="emoji-optional" />
+          <input name="text" type="text" required placeholder="Nueva política…" />
+          <button type="submit">+</button>
+        </form>
+      </div>
+
+      <button type="button" id="btn-reset-defaults" class="btn-secondary">Restaurar líneas por defecto</button>
+
+      <div class="config-block" style="margin-top:28px">
+        <h2>Dominios habilitados</h2>
+        <p class="hint" style="margin-top:0">
+          Sitios donde la extensión inyecta <strong>Agregar al Carrito GT</strong>.
+        </p>
+        <div class="domain-grid">
+          <article class="domain">
+            <span class="badge">Hoteles · Traslados</span>
+            <p class="domain-name">BookingMotor / Grupo Stravel</p>
+            <p class="domain-host">reservas.grupostravel.com</p>
+          </article>
+          <article class="domain">
+            <span class="badge">Vuelos</span>
+            <p class="domain-name">Despegar</p>
+            <p class="domain-host">*.despegar.com.co</p>
+          </article>
+          <article class="domain">
+            <span class="badge">Vuelos</span>
+            <p class="domain-name">XNet / Scape</p>
+            <p class="domain-host">scape.xnet.travel · *.xnet.travel</p>
+          </article>
+          <article class="domain">
+            <span class="badge">Vuelos</span>
+            <p class="domain-name">Avianca</p>
+            <p class="domain-host">booking.avianca.com · *.avianca.com</p>
+          </article>
+          <article class="domain">
+            <span class="badge">Vuelos</span>
+            <p class="domain-name">Wingo</p>
+            <p class="domain-host">booking.wingo.com · *.wingo.com</p>
+          </article>
+          <article class="domain">
+            <span class="badge">Vuelos</span>
+            <p class="domain-name">JetSMART</p>
+            <p class="domain-host">booking.jetsmart.com · *.jetsmart.com</p>
+          </article>
+          <article class="domain">
+            <span class="badge badge--dev">Pruebas</span>
+            <p class="domain-name">Local / archivos</p>
+            <p class="domain-host">localhost · 127.0.0.1 · file://</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="asistente.js"></script>
+</body>
+</html>

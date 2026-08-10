@@ -40,18 +40,19 @@ Una pantalla: pestaña al lado. Dos pantallas: se arrastra la pestaña al otro m
 ### 1A — Identidad y lateral (captura)
 
 - [x] Rename visible: “Mi Carrito” → asistente de cotización (encabezado compacto + cliente/ruta/TRM)
-- [ ] Ensachar el panel lateral (~420–480px o configurable)
+- [x] Ensachar el panel lateral (~420–480px o configurable) — anchos 340 / 700 / 900 (comparar)
 - [ ] Layout push: al abrir, la página se estrecha y el contenido no queda tapado
-- [ ] Botón **“Abrir panel en otra pestaña”** en el lateral (y/o popup)
-- [ ] Actualizar `README` / `CONTEXT` con el nombre y el flujo dual
+- [x] Botón **“Abrir panel en otra pestaña”** en el lateral (y popup)
+- [~] Actualizar `README` / `CONTEXT` con el nombre y el flujo dual
 
 ### 1B — Panel fullscreen (otra pestaña)
 
-- [ ] Página de extensión `asistente.html` (web app a ancho completo)
-- [ ] Misma fuente de datos que el lateral (`tce_cart_items`, fees, TRM, cliente, etc.)
-- [ ] Sync en vivo vía `chrome.storage.onChanged` (editar en uno → se ve en el otro)
-- [ ] Pestañas **Productos / Total / WhatsApp / Historial** cómodas en el panel (más espacio para leer y editar)
-- [ ] El lateral puede quedar enfocado en captura + resumen; el trabajo “pesado” de Total/WhatsApp/Historial vive bien en el panel (sin quitar esas pestañas del lateral en v1 si ya están)
+- [x] Página de extensión `asistente.html` (web app a ancho completo)
+- [x] Misma fuente de datos que el lateral (`tce_cart_items`, fees, TRM, cliente, etc.)
+- [x] Sync en vivo vía `chrome.storage.onChanged` (editar en uno → se ve en el otro)
+- [x] Pestañas **Productos / Total / WhatsApp / Historial** cómodas en el panel (Total y WhatsApp editables en v1.0.36)
+- [x] Pestaña **Config** en el panel (TA, suplemento TRM, líneas WhatsApp, dominios)
+- [x] El lateral puede quedar enfocado en captura + resumen; el trabajo “pesado” de Total/WhatsApp/Historial vive bien en el panel (sin quitar esas pestañas del lateral en v1 si ya están)
 
 ### 1C — Dashboard en el panel (stats)
 
@@ -59,9 +60,9 @@ El panel fullscreen se potencia con un resumen operativo (no va en el lateral es
 
 **v1 (sin login, historial local `chrome.storage`)**
 
-- [ ] Pestaña o bloque **Dashboard** en el panel
-- [ ] Contadores: cotizaciones **hoy / ayer / esta semana / este mes** (desde historial local)
-- [ ] Otras stats simples útiles: total cotizado en el período, destinos más frecuentes, ticket promedio, últimas N cotizaciones
+- [x] Pestaña o bloque **Dashboard** en el panel
+- [x] Contadores: cotizaciones **hoy / ayer / esta semana / este mes** (desde historial local)
+- [x] Otras stats simples útiles: total cotizado en el período, destinos más frecuentes, ticket promedio, últimas N cotizaciones
 
 **v2 (con cloud — tras Fases 2–3)**
 
@@ -73,6 +74,7 @@ El panel fullscreen se potencia con un resumen operativo (no va en el lateral es
 - 2026-08-04: acordado dual surface (ampliar lateral + panel en otra pestaña); Total/WhatsApp/Historial cómodos en el panel.
 - 2026-08-04: dashboard de stats en el panel (local primero; cloud después).
 - 2026-08-04: mockup visual en `scratch/asistente-panel-mockup.html` (datos ficticios; pestañas Dashboard / Productos / Total / WhatsApp / Historial).
+- 2026-08-10: v1.0.35 — `asistente.html` + botón ↗; Dashboard y Config reales; sync storage; layout push sigue pendiente.
 
 **Notas de diseño**
 
@@ -216,4 +218,5 @@ Objetivo: cobertura real del día a día (después de tener tool y cloud estable
 | 2026-08-04 | Tablero creado; orden de fases acordado. |
 | 2026-08-04 | Fase 1 ampliada: lateral más ancho + push, y panel en otra pestaña (misma extensión). |
 | 2026-08-04 | Fase 1C: dashboard de cotizaciones (hoy/ayer/semana/mes + stats); local → cloud. |
-| 2026-08-04 | Mockup panel: `scratch/asistente-panel-mockup.html`. Siguiente: feedback UI → implementar Fase 1. |
+| 2026-08-10 | v1.0.35: panel `asistente.html` + Config/Dashboard; botón abrir panel. Layout push pendiente. |
+| 2026-08-10 | v1.0.38: Carrito unificado (productos+total); TRM/pax/comparar en panel; WhatsApp editable. |

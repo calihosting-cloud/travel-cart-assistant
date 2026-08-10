@@ -17,6 +17,10 @@ import {
 } from '../shared/quoteConfig';
 import {
   HistoryEntry,
+  CLIENT_KEY,
+  HISTORY_KEY,
+  PENDING_QUOTE_KEY,
+  USD_EQUIV_KEY,
   commitQuoteNumber,
   formatQuoteRef,
   loadAdvisorName,
@@ -34,6 +38,7 @@ import {
 import {
   DEFAULT_TRM_SUPLEMENTO,
   DisplayCurrency,
+  DISPLAY_CURRENCY_KEY,
   copToUsd,
   effectiveTrm,
   loadDisplayCurrency,
@@ -59,6 +64,8 @@ import {
 } from '../shared/tripGuide';
 import {
   HotelCompareOptionGroup,
+  HOTEL_COMPARE_GROUPS_KEY,
+  HOTELS_AS_OPTIONS_KEY,
   loadHotelCompareGroups,
   loadHotelsAsOptions,
   newHotelCompareGroupId,
@@ -66,6 +73,7 @@ import {
   saveHotelsAsOptions,
 } from '../shared/quoteOptions';
 import { buildWhatsAppQuote } from './QuoteBuilder';
+import { openAsistentePanel } from '../shared/openAsistente';
 import {
   defaultTaConfig,
   defaultTaSelection,
@@ -145,6 +153,13 @@ export class CartSidebar {
   private taSelection: TaSelection = defaultTaSelection();
   /** While typing TRM / fees / TA, skip full re-renders from storage echoes. */
   private suppressNumberFieldRerender = false;
+  /** Timestamp of last cart/fees write from this tab — distinguish echo vs other tabs/panel. */
+  private lastLocalCartWriteAt = 0;
+  private lastLocalFeesWriteAt = 0;
+
+  private isLocalStorageEcho(writtenAt: number, windowMs = 150): boolean {
+    return writtenAt > 0 && Date.now() - writtenAt < windowMs;
+  }
 
   constructor() {
     const existing = document.getElementById('tce-cart-sidebar-host');
@@ -186,6 +201,7 @@ export class CartSidebar {
     this.history = await loadHistory();
     this.watchTrmStorage();
     this.watchTaStorage();
+    this.watchMetaStorage();
     this.render();
     // Ask background to pull TRM from dolar-colombia.com (non-blocking).
     try {
@@ -561,7 +577,8 @@ export class CartSidebar {
 
   /**
    * Keeps one shared cart across all provider tabs (BookingMotor, Avianca,
-   * Wingo, etc.): when another page writes `tce_cart_items` / fees, refresh UI.
+   * Wingo, etc.) and the asistente panel: when another context writes
+   * `tce_cart_items` / fees, refresh UI.
    */
   private watchCartStorage(): void {
     try {
@@ -577,9 +594,10 @@ export class CartSidebar {
           } else {
             this.applyItemsFromStorage([]);
           }
-          // Own saveToStorage() while editing item mayor valor / redondeo:
-          // avoid full re-render (focus loss); only refresh grand totals.
-          if (this.suppressNumberFieldRerender) {
+          const echo =
+            this.isLocalStorageEcho(this.lastLocalCartWriteAt) &&
+            this.suppressNumberFieldRerender;
+          if (echo) {
             const totalsEl = this.shadow.querySelector('.tce-totals');
             if (totalsEl) totalsEl.innerHTML = this.renderTotals();
           } else {
@@ -591,9 +609,10 @@ export class CartSidebar {
           this.applyFeesFromStorage(
             changes[FEES_KEY].newValue as Record<string, number> | undefined
           );
-          // Our own saveFees() echoes here. A full render recreates the input and
-          // steals focus after every digit — only refresh totals while typing.
-          if (this.suppressNumberFieldRerender) {
+          const echo =
+            this.isLocalStorageEcho(this.lastLocalFeesWriteAt) &&
+            this.suppressNumberFieldRerender;
+          if (echo) {
             const totalsEl = this.shadow.querySelector('.tce-totals');
             if (totalsEl) totalsEl.innerHTML = this.renderTotals();
           } else {
@@ -608,8 +627,68 @@ export class CartSidebar {
     }
   }
 
+  /** Sync client, currency, compare-hotels, USD equiv, pending quote across tabs/panel. */
+  private watchMetaStorage(): void {
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        let dirty = false;
+
+        if (changes[CLIENT_KEY]) {
+          const next = changes[CLIENT_KEY].newValue;
+          this.clientName = typeof next === 'string' ? next : '';
+          dirty = true;
+        }
+        if (changes[DISPLAY_CURRENCY_KEY]) {
+          this.displayCurrency = normalizeDisplayCurrency(changes[DISPLAY_CURRENCY_KEY].newValue);
+          dirty = true;
+        }
+        if (changes[HOTELS_AS_OPTIONS_KEY]) {
+          this.hotelsAsOptions = changes[HOTELS_AS_OPTIONS_KEY].newValue === true;
+          this.syncHotelOptionGroups();
+          dirty = true;
+        }
+        if (changes[HOTEL_COMPARE_GROUPS_KEY]) {
+          const raw = changes[HOTEL_COMPARE_GROUPS_KEY].newValue;
+          if (Array.isArray(raw)) {
+            this.hotelOptionGroups = raw
+              .filter((g): g is HotelCompareOptionGroup => !!g && typeof g.id === 'string')
+              .map((g) => ({
+                id: g.id,
+                hotelIds: Array.isArray(g.hotelIds)
+                  ? g.hotelIds.filter((id): id is string => typeof id === 'string')
+                  : [],
+              }));
+            this.syncHotelOptionGroups();
+          }
+          dirty = true;
+        }
+        if (changes[USD_EQUIV_KEY]) {
+          this.includeUsdEquiv = changes[USD_EQUIV_KEY].newValue === true;
+          dirty = true;
+        }
+        if (changes[PENDING_QUOTE_KEY]) {
+          const n = changes[PENDING_QUOTE_KEY].newValue;
+          this.pendingQuoteNumber = typeof n === 'number' && n > 0 ? n : null;
+          dirty = true;
+        }
+        if (changes[HISTORY_KEY]) {
+          void loadHistory().then((h) => {
+            this.history = h;
+            if (this.panelTab === 'history') this.render();
+          });
+        }
+
+        if (dirty && !this.suppressNumberFieldRerender) this.render();
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   private async saveToStorage(): Promise<void> {
     try {
+      this.lastLocalCartWriteAt = Date.now();
       await chrome.storage.local.set({ [STORAGE_KEY]: this.items });
     } catch {
       // storage unavailable
@@ -692,6 +771,7 @@ export class CartSidebar {
 
   private async saveFees(): Promise<void> {
     try {
+      this.lastLocalFeesWriteAt = Date.now();
       await chrome.storage.local.set({ [FEES_KEY]: this.fees });
     } catch {
       // storage unavailable
@@ -1630,6 +1710,7 @@ export class CartSidebar {
         color: #1e40af;
       }
       .tce-width-toggle,
+      .tce-open-panel,
       .tce-close {
         background: rgba(255,255,255,0.15);
         border: none;
@@ -1646,7 +1727,13 @@ export class CartSidebar {
         padding: 0;
       }
       .tce-width-toggle:hover,
-      .tce-close:hover { background: rgba(255,255,255,0.25); }
+      .tce-open-panel:hover,
+      .tce-close:hover {
+        background: rgba(255,255,255,0.28);
+      }
+      .tce-open-panel {
+        font-size: 15px;
+      }
       .tce-width-toggle {
         font-size: 12px;
         font-weight: 700;
@@ -2847,6 +2934,8 @@ export class CartSidebar {
             Comparar
           </label>
           <div class="tce-header-actions">
+            <button type="button" class="tce-open-panel" data-action="open-asistente"
+              title="Abrir panel en otra pestaña">↗</button>
             <button type="button" class="tce-width-toggle" data-action="toggle-width"
               title="${widthTitle}" aria-label="${widthTitle}">${widthIcon}</button>
             <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
@@ -3572,6 +3661,9 @@ export class CartSidebar {
         // Defer so storage.onChanged from the last keystroke still sees the flag.
         window.setTimeout(() => {
           this.suppressNumberFieldRerender = false;
+          // Pull latest shared state after editing (other tabs / panel may have written).
+          void this.loadFromStorage();
+          void this.loadFees();
         }, 0);
       }
     });
@@ -3583,6 +3675,8 @@ export class CartSidebar {
       const action = target.dataset.action;
       if (action === 'toggle') {
         this.toggle();
+      } else if (action === 'open-asistente') {
+        openAsistentePanel();
       } else if (action === 'toggle-width') {
         this.togglePanelWidth();
       } else if (action === 'remove') {

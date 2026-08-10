@@ -14,6 +14,18 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'TCE_OPEN_ASISTENTE') {
+    const url = chrome.runtime.getURL('asistente.html');
+    void chrome.tabs
+      .create({ url })
+      .then((tab) => sendResponse({ ok: true, tabId: tab.id }))
+      .catch((err) => {
+        console.error('[TCE] tabs.create asistente failed', err);
+        sendResponse({ ok: false, error: String(err) });
+      });
+    return true;
+  }
+
   if (message?.type === 'TCE_APP_LOG' && message.entry) {
     const entry = message.entry as AppLogEntry;
     const prefix = `[TCE][${entry.level}]`;

@@ -1,3 +1,4 @@
+import { openAsistentePanel } from '../shared/openAsistente';
 import {
   defaultQuoteLines,
   loadQuoteLines,
@@ -199,6 +200,9 @@ async function loadChangelog(): Promise<void> {
 
 async function init(): Promise<void> {
   setupTabs();
+  document.getElementById('btn-open-asistente')?.addEventListener('click', () => {
+    openAsistentePanel();
+  });
   lines = await loadQuoteLines();
   taConfig = await loadTaConfig();
   trmSuplemento = await loadTrmSuplemento();

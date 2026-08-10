@@ -12,6 +12,43 @@ Formato por entrada:
 
 ---
 
+## 2026-08-10 — Sync bidireccional carrito ↔ panel ↔ pestañas (v1.0.40)
+
+- **Fixed**: el lateral ahora escucha cliente, moneda, comparar hoteles, grupos, USD equiv e historial/pending — cambios del panel se reflejan al instante.
+- **Fixed**: al editar fees/ajustes ya no se “tragan” cambios de otra pestaña (Avianca vs BookingMotor) ni del panel: solo se suprime el eco local; writes remotos fuerzan refresh.
+- **Docs**: sync multi-pestaña vía `chrome.storage.onChanged` documentado en CONTEXT.
+
+## 2026-08-10 — Ajustes por ítem y vaciar en el panel (v1.0.39)
+
+- **Added**: en Carrito del panel — **Mayor valor** / **Redondeo** por ítem (con botón 10k/10$) sincronizados con el lateral.
+- **Added**: botón **Vaciar carrito** en el panel (archiva en historial y limpia storage como el lateral).
+
+## 2026-08-10 — Panel Carrito unificado + TRM/pax/comparar (v1.0.38)
+
+- **Changed**: pestañas Productos + Total unificadas en **Carrito** (servicios a la izquierda, fees/totales a la derecha).
+- **Added**: en el panel — pasajeros (adultos/niños/bebés), TRM dolar-colombia (esquina del header + botón web), toggle **Comparar hoteles** con chips y opciones.
+- **Changed**: WhatsApp del panel es **editable** y más alto (layout vertical).
+
+## 2026-08-10 — Abrir panel sin bloqueo Edge/ads (v1.0.37)
+
+- **Fixed**: el botón ↗ ya no usa `window.open` (Edge/bloqueadores lo marcaban como publicidad → `ERR_BLOCKED_BY_CLIENT`). Abre `asistente.html` con `chrome.tabs.create` desde el service worker.
+
+## 2026-08-10 — Total y WhatsApp editables en el panel (v1.0.36)
+
+- **Added**: edición completa de **Total** en `asistente.html` (fees, TA, redondeo, COP/USD, totales / opciones hotel) sincronizada con el lateral.
+- **Added**: edición completa de **WhatsApp** en el panel (preview, copiar, checkboxes de líneas, equiv. USD) con archivo al historial al copiar.
+- **Added**: motor compartido `src/shared/cartEngine.ts` para totales/TA/redondeo reutilizable.
+- **Docs**: TODO/CONTEXT — Total/WhatsApp del panel ya no son solo lectura.
+
+## 2026-08-10 — Panel fullscreen + Config (v1.0.35)
+
+- **Added**: página `asistente.html` (espacio de trabajo a ancho completo) con pestañas Dashboard / Productos / Total / WhatsApp / Historial / **Config**, sincronizada con `chrome.storage` del carrito lateral.
+- **Added**: botón **Abrir panel** (↗) en el encabezado del lateral y en el popup de la extensión.
+- **Added**: en Config del panel: TA, suplemento TRM, líneas incluye/no incluye/políticas y listado de dominios (misma info que el popup).
+- **Added**: Dashboard local (hoy/ayer/semana/mes, ticket promedio, destinos, últimas cotizaciones).
+- **Docs**: `docs/TODO.md` y `docs/CONTEXT.md` — flujo dual lateral + panel; layout push sigue pendiente.
+- **Note**: layout push (estrechar la página al abrir el lateral) **no** implementado aún; el lateral sigue como overlay.
+
 ## 2026-08-06 — Edades de niños en la guía
 
 - **Changed**: si hay edades de niños (hotel/traslado/BM), la guía las muestra (`1 Chd (8)`); si no hay edades, solo el conteo de niños.

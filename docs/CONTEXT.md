@@ -151,7 +151,23 @@ Botón: `btn btn-xs btn-info btn-tce-add-cart`, HTML `+ 🛒`, estilos inline co
 
 ## Carrito lateral (`CartSidebar`)
 
-- Shadow DOM cerrado, z-index alto, panel fijo 340px derecha (ampliable a 560px; ~720px con Comparar hoteles).
+- Shadow DOM cerrado, z-index alto, panel fijo 340px derecha (ampliable a 700px; ~900px con Comparar hoteles).
+- Botón **↗** en el encabezado abre el **panel fullscreen** (`asistente.html`) en otra pestaña.
+
+### Panel fullscreen (`asistente.html`)
+
+Espacio de trabajo amplio (misma extensión), sincronizado por `chrome.storage.onChanged`:
+
+| Pestaña | Rol |
+|---------|-----|
+| **Dashboard** | Stats locales (hoy/ayer/semana/mes, destinos, últimas cotizaciones) |
+| **Carrito** | Productos (izq) con ajustes por ítem + fees/TA/totales (der); comparar hoteles; vaciar; sync con lateral |
+| **WhatsApp** | Preview editable + copiar / regenerar |
+| **Config** | TA, suplemento TRM, líneas incluye/no incluye/políticas, dominios (también en popup) |
+
+Archivos: `public/asistente.html` + `public/asistente.css` + `src/asistente/asistente.ts`.
+
+**Sync:** un solo carrito en `chrome.storage.local` (`tce_cart_items`, fees, TRM, cliente, comparar, etc.). El lateral (todas las pestañas de proveedores) y el panel escuchan `onChanged` — agregar en Avianca se ve en BookingMotor y en el panel, y al revés.
 
 ### Comparar hoteles (opciones combinadas)
 
@@ -212,7 +228,7 @@ Pestaña **WhatsApp** del carrito:
 
 ## Build
 
-- Vite multi-entry: `background.js`, `content.js`, `bridge.js`, `popup.js` → `dist/`
+- Vite multi-entry: `background.js`, `content.js`, `bridge.js`, `popup.js`, `asistente.js` → `dist/`
 - `tsc` valida tipos; `rootDir: src`, `outDir: dist`
 - Manifest en `public/` — verificar que Vite lo copie (si no, copiar manualmente a dist)
 

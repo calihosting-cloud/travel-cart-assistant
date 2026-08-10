@@ -103,6 +103,10 @@ Flujo:
 
 Documentación detallada para agentes y desarrolladores: [`docs/CONTEXT.md`](docs/CONTEXT.md).
 
+Instrucciones para restaurar versiones: [`docs/RESTAURAR.md`](docs/RESTAURAR.md) (palabra clave **restaurar carrito**).
+
+**Panel de trabajo:** tras cargar la extensión, en el carrito lateral usa **↗** (o el popup → “Abrir panel en pestaña”) para abrir `asistente.html` a pantalla completa (Dashboard + Config sincronizados con el lateral).
+
 Guía para publicar en GitHub: [`docs/GITHUB_SETUP.md`](docs/GITHUB_SETUP.md).
 
 ## Carrito: resumen y fees
