@@ -49,6 +49,7 @@ export class XNetFlightReader {
 
     const segmentsByLeg = new Map<number, FlightSegment[]>();
     const legMeta = new Map<number, { dateIso?: string; stopsHint: number }>();
+    const legBaggage = new Map<number, string[]>();
 
     for (const row of rows) {
       const parsed = parseSelectedRow(row);
@@ -61,6 +62,16 @@ export class XNetFlightReader {
       if (parsed.dateIso) meta.dateIso = parsed.dateIso;
       meta.stopsHint = Math.max(meta.stopsHint, parsed.stopsHint);
       legMeta.set(parsed.legIndex, meta);
+
+      if (parsed.baggageIncluded?.length) {
+        const existing = legBaggage.get(parsed.legIndex) ?? [];
+        for (const item of parsed.baggageIncluded) {
+          if (!existing.some((v) => v.toLowerCase() === item.toLowerCase())) {
+            existing.push(item);
+          }
+        }
+        legBaggage.set(parsed.legIndex, existing);
+      }
     }
 
     const legIndexes = Array.from(segmentsByLeg.keys()).sort((a, b) => a - b);
@@ -77,6 +88,7 @@ export class XNetFlightReader {
       );
       const stopsFromSegs = Math.max(0, segments.length - 1);
       const stops = Math.max(stopsFromSegs, meta?.stopsHint ?? 0);
+      const baggageIncluded = legBaggage.get(legIndex);
 
       return {
         direction: isReturn ? 'return' : 'outbound',
@@ -92,6 +104,7 @@ export class XNetFlightReader {
         stops,
         airlines,
         segments,
+        baggageIncluded: baggageIncluded?.length ? baggageIncluded : undefined,
       };
     });
 
@@ -144,6 +157,11 @@ export class XNetFlightReader {
       pax.infants ? `${pax.infants} bebé${pax.infants === 1 ? '' : 's'}` : null,
     ].filter(Boolean);
 
+    const tripBaggage = legs.flatMap((l) => l.baggageIncluded || []);
+    const uniqueTripBaggage = tripBaggage.filter(
+      (b, i, all) => all.findIndex((x) => x.toLowerCase() === b.toLowerCase()) === i
+    );
+
     return {
       id: `flight_${tripId}`,
       type: 'flight',
@@ -164,7 +182,9 @@ export class XNetFlightReader {
       price,
       currency,
       priceBreakdown,
-      baggageIncluded: readIncludedBaggage(box),
+      baggageIncluded: uniqueTripBaggage.length
+        ? uniqueTripBaggage
+        : readIncludedBaggage(box),
       bookingUrl: typeof location !== 'undefined' ? location.href : undefined,
     };
   }
@@ -223,6 +243,7 @@ function parseSelectedRow(row: HTMLTableRowElement): {
   legIndex: number;
   dateIso?: string;
   stopsHint: number;
+  baggageIncluded?: string[];
   segment: FlightSegment;
 } | null {
   const id = row.id || '';
@@ -241,6 +262,7 @@ function parseSelectedRow(row: HTMLTableRowElement): {
   const equipmentCell = cells[4];
   const stopsCell = cells[5];
   const classCell = cells[8];
+  const baggageCell = cells[9];
 
   const airlineFromTitle =
     flightCell.getAttribute('title')?.match(/Operado por\s+([A-Z0-9]+)\s*\/\s*(.+)/i) || null;
@@ -263,11 +285,13 @@ function parseSelectedRow(row: HTMLTableRowElement): {
     .replace(/<[^>]+>/g, ' ');
   const cabin = cabinRaw.replace(/\s+/g, ' ').trim() || undefined;
   const stopsHint = parseStops(stopsCell?.textContent || '');
+  const baggageIncluded = parseEquipajeCell(baggageCell?.textContent || '', cabin);
 
   return {
     legIndex,
     dateIso: dateFromId || dep.date || undefined,
     stopsHint,
+    baggageIncluded,
     segment: {
       airlineCode,
       airlineName,
@@ -343,6 +367,34 @@ function airlineCodeFromImg(src: string | null | undefined): string | undefined 
   if (!src) return undefined;
   const m = src.match(/\/([a-z0-9]{2})\.png/i);
   return m?.[1]?.toUpperCase();
+}
+
+function parseEquipajeCell(text: string, cabin?: string): string[] | undefined {
+  const raw = text.replace(/\s+/g, ' ').trim();
+  const values: string[] = [];
+
+  if (raw) {
+    for (const match of raw.matchAll(/(?<!\bNo )Incluye\s+(.+?)(?=\s+No incluye|$)/gi)) {
+      const item = match[1].replace(/\s+/g, ' ').trim();
+      if (item && !values.some((v) => v.toLowerCase() === item.toLowerCase())) {
+        values.push(item);
+      }
+    }
+  }
+
+  if (values.length) return values;
+
+  const cabinKey = (cabin || '').replace(/\s+/g, '').toLowerCase();
+  if (/basic/i.test(cabinKey)) {
+    return ['Cartera de mano'];
+  }
+  if (/light/i.test(cabinKey)) {
+    return ['Cartera de mano', 'Equipaje de cabina'];
+  }
+  if (/full|flex|plus/i.test(cabinKey)) {
+    return ['Cartera de mano', 'Equipaje de cabina', 'Equipaje para despachar'];
+  }
+  return undefined;
 }
 
 function parseStops(text: string): number {

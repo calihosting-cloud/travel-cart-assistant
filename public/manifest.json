@@ -1,16 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Travel Cart Assistant GT",
-  "version": "1.0.40",
-  "description": "Carrito GT — BookingMotor, Despegar, XNet, Avianca, Wingo, JetSMART",
+  "version": "1.1.55",
+  "description": "Carrito GT — BookingMotor (hoteles, traslados, actividades, seguros, circuitos), Despegar, XNet, Avianca, Wingo, JetSMART, Arajet",
   "permissions": [
     "storage",
     "activeTab",
     "scripting",
-    "alarms"
+    "alarms",
+    "tabs"
   ],
   "host_permissions": [
-    "https://www.dolar-colombia.com/*"
+    "https://www.dolar-colombia.com/*",
+    "https://dolar.wilkinsonpc.com.co/*",
+    "https://staticmap.openstreetmap.de/*",
+    "https://static-maps.yandex.ru/*",
+    "https://images.kiwi.com/*"
   ],
   "action": {
     "default_title": "Carrito GT — dominios habilitados",
@@ -39,6 +44,11 @@
         "https://*.wingo.com/*",
         "https://booking.jetsmart.com/*",
         "https://*.jetsmart.com/*",
+        "https://jetsmart.com/*",
+        "https://www.jetsmart.com/*",
+        "https://www.arajet.com/*",
+        "https://arajet.com/*",
+        "https://*.arajet.com/*",
         "http://localhost/*",
         "http://127.0.0.1/*",
         "file://*/*"

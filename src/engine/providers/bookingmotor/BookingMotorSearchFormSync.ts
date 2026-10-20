@@ -2,6 +2,11 @@ import { RoomOccupancy, SearchContext } from '../../core/types';
 
 export type SearchFormType = 'hotel' | 'transfer' | 'activity' | 'insurance';
 
+/** Default insurance age for adults (BM / travel policies often use 18–21). */
+export const INSURANCE_ADULT_AGE = 21;
+/** Default when a child has no stored age in the briefing. */
+export const INSURANCE_CHILD_DEFAULT_AGE = 6;
+
 /**
  * Reads and writes BookingMotor search forms (`#search_hotel`, `#search_transfer`,
  * `#search_activity`, `#search_insurance`).
@@ -24,7 +29,22 @@ export class BookingMotorSearchFormSync {
 
   /** Returns the form that is currently rendered on screen (active tab), if any. */
   getVisibleForm(doc: Document): { type: SearchFormType; form: HTMLFormElement } | null {
-    for (const type of ['hotel', 'transfer', 'activity', 'insurance'] as SearchFormType[]) {
+    const types = ['hotel', 'transfer', 'activity', 'insurance'] as SearchFormType[];
+    // Prefer the BM tab pane marked active (several forms can exist in the DOM).
+    for (const type of types) {
+      const form = this.getForm(doc, type);
+      if (!form) continue;
+      const pane = form.closest('.tab-pane, [role="tabpanel"]') as HTMLElement | null;
+      if (pane) {
+        const active =
+          pane.classList.contains('active') ||
+          pane.classList.contains('in') ||
+          pane.getAttribute('aria-hidden') === 'false';
+        if (active) return { type, form };
+        continue;
+      }
+    }
+    for (const type of types) {
       const form = this.getForm(doc, type);
       if (form && this.isVisible(form)) return { type, form };
     }
@@ -71,10 +91,15 @@ export class BookingMotorSearchFormSync {
 
       const adults = this.num(adultsSel.value, 1);
       const childrenSel = this.select(form, `searchhotel[listrooms][${roomIndex}][children]`);
-      const children = this.num(childrenSel?.value ?? '0', 0);
+      const fromSelect = this.num(childrenSel?.value ?? '0', 0);
+      const fromVisible = this.countVisibleHotelAgeSlots(form, roomIndex);
+      const children = Math.max(fromSelect, fromVisible);
       const childrenAges: number[] = [];
       for (let a = 0; a < children; a++) {
-        const ageSel = this.select(form, `searchhotel[listrooms][${roomIndex}][childrenages][${a}][age]`);
+        const ageSel = this.select(
+          form,
+          `searchhotel[listrooms][${roomIndex}][childrenages][${a}][age]`
+        );
         if (ageSel) childrenAges.push(this.num(ageSel.value, 0));
       }
 
@@ -92,6 +117,17 @@ export class BookingMotorSearchFormSync {
       destinationText: this.value(form, 'searchhotel[destiny]'),
       rooms,
     });
+  }
+
+  /** Age widgets live in `#ages[room-child]` and stay in the DOM (hidden with display:none). */
+  private countVisibleHotelAgeSlots(form: HTMLFormElement, roomIndex: number): number {
+    let n = 0;
+    for (let a = 0; a < 4; a++) {
+      const wrap = form.querySelector<HTMLElement>(`[id="ages[${roomIndex}-${a}]"]`);
+      if (!wrap || this.isSelfHidden(wrap)) continue;
+      n++;
+    }
+    return n;
   }
 
   /** True when the element itself is explicitly hidden (not via a collapsed ancestor). */
@@ -233,6 +269,18 @@ export class BookingMotorSearchFormSync {
       changed = this.setValueIfOption(form, 'searchtransfer[nationality]', ctx.nationality) || changed;
     }
 
+    const hotelHint = (ctx.transferHotelHint || '').trim();
+    if (hotelHint) {
+      // Do not write the hotel name into «Hasta»: without dropoff ID BM
+      // treats it as invalid and clears it when focusing «Desde».
+      const toEl = form.querySelector<HTMLInputElement>('[name="searchtransfer[to]"]');
+      const dropoff = form.querySelector<HTMLInputElement>('[name="searchtransfer[dropoff]"]');
+      if (toEl && !(dropoff?.value || '').trim() && toEl.value.trim() === hotelHint) {
+        toEl.value = '';
+        changed = true;
+      }
+    }
+
     return changed;
   }
 
@@ -299,11 +347,165 @@ export class BookingMotorSearchFormSync {
     if (pax > 0) {
       changed = this.setSelectClamped(form, 'searchinsurance[passengers]', pax) || changed;
     }
+    changed = this.triggerInsurancePassengersChange(form) || changed;
+    // Fresh form lists countries A–Z; first option is Afganistán, not Colombia.
+    // Pick Colombia by label so we get BM's country id (13) + origin_name.
+    changed = this.applyDefaultColombiaCountry(form, 'searchinsurance[origin]') || changed;
+    changed = this.applyDefaultColombiaCountry(form, 'searchinsurance[destiny]') || changed;
     if (ctx.nationality) {
       changed =
         this.setValueIfOption(form, 'searchinsurance[nationality]', ctx.nationality) || changed;
     }
+    changed = this.applyInsuranceAges(form, ctx) || changed;
     return changed;
+  }
+
+  /**
+   * One age field per insured person. Adults → 21; children → briefing age or 6.
+   * BookingMotor shows/hides `.paxage` on passengers change (jQuery).
+   */
+  applyInsuranceAges(form: HTMLFormElement, ctx: SearchContext): boolean {
+    const passengersSel = this.select(form, 'searchinsurance[passengers]');
+    const pax = passengersSel
+      ? this.num(passengersSel.value, 0)
+      : Math.max(0, ctx.totalAdults + ctx.totalChildren);
+    if (pax <= 0) return false;
+
+    this.triggerInsurancePassengersChange(form);
+    this.revealInsuranceAgeSlots(form, pax);
+    const ages = this.expectedInsuranceAges(ctx, pax);
+    let changed = false;
+    for (let i = 0; i < pax; i++) {
+      const age = ages[i];
+      if (age === undefined || !Number.isFinite(age)) continue;
+      changed = this.setInsuranceAge(form, i, age) || changed;
+    }
+    return changed;
+  }
+
+  expectedInsuranceAges(ctx: SearchContext, paxOverride?: number): number[] {
+    let adults = Math.max(0, ctx.totalAdults || 0);
+    let children = Math.max(0, ctx.totalChildren || 0);
+    const pax = paxOverride ?? adults + children;
+    // Passengers select may show N while briefing only has dates — treat extras as adults.
+    if (pax > adults + children) {
+      adults += pax - adults - children;
+    } else if (pax > 0 && adults + children === 0) {
+      adults = pax;
+      children = 0;
+    }
+    const ages: number[] = [];
+    for (let i = 0; i < adults; i++) ages.push(INSURANCE_ADULT_AGE);
+    const childAges = ctx.childrenAges || [];
+    for (let i = 0; i < children; i++) {
+      const age = childAges[i];
+      ages.push(
+        age !== undefined && Number.isFinite(age) && age > 0
+          ? age
+          : INSURANCE_CHILD_DEFAULT_AGE
+      );
+    }
+    // Safety: if split still short (edge context), pad with adult age.
+    while (ages.length < pax) ages.push(INSURANCE_ADULT_AGE);
+    return ages.slice(0, pax);
+  }
+
+  /** Fire BM's passenger→age-slot handler even when the count did not change. */
+  triggerInsurancePassengersChange(form: HTMLFormElement): boolean {
+    const sel = this.select(form, 'searchinsurance[passengers]');
+    if (!sel) return false;
+    const win = form.ownerDocument?.defaultView as
+      | (Window & { jQuery?: (el: Element) => { trigger: (ev: string) => void } })
+      | null;
+    if (win?.jQuery) {
+      try {
+        win.jQuery(sel).trigger('change');
+        return true;
+      } catch {
+        // fall through
+      }
+    }
+    this.dispatch(sel);
+    return true;
+  }
+
+  private setInsuranceAge(form: HTMLFormElement, index: number, age: number): boolean {
+    const name = `searchinsurance[passengerages][${index}][age]`;
+    const el = form.querySelector<HTMLInputElement>(`[name="${name}"]`);
+    if (!el) return false;
+    const val = String(Math.round(age));
+    if (el.value.trim() === val) return false;
+    el.value = val;
+    this.dispatch(el);
+    el.dispatchEvent(new Event('keyup', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+    return true;
+  }
+
+  private revealInsuranceAgeSlots(form: HTMLFormElement, count: number): void {
+    for (let i = 0; i < 10; i++) {
+      const wrap = form.querySelector<HTMLElement>(`[id="ages[${i}]"]`);
+      if (!wrap) continue;
+      if (i < count) {
+        wrap.style.display = '';
+        wrap.classList.remove('hidden');
+      } else {
+        wrap.style.display = 'none';
+      }
+    }
+    // BM uses jQuery .show() on .paxage — mirror for slots without jQuery.
+    form.querySelectorAll<HTMLElement>('.paxage').forEach((el, idx) => {
+      el.style.display = idx < count ? '' : 'none';
+    });
+  }
+
+  insuranceCountryLooksUnset(form: HTMLFormElement, selectName: string): boolean {
+    const sel = this.select(form, selectName);
+    if (!sel) return false;
+    const text = sel.selectedOptions[0]?.text.replace(/\s+/g, ' ').trim() || '';
+    if (!text) return true;
+    if (/^afganist[aá]n$/i.test(text) || /^afghanistan$/i.test(text)) return true;
+    return false;
+  }
+
+  /** Sets origin/destiny to Colombia only while BM still shows the A–Z default (Afganistán). */
+  private applyDefaultColombiaCountry(form: HTMLFormElement, selectName: string): boolean {
+    const sel = this.select(form, selectName);
+    if (!sel) return false;
+    if (!this.insuranceCountryLooksUnset(form, selectName)) return false;
+
+    const colombia = Array.from(sel.options).find(
+      (o) => o.text.replace(/\s+/g, ' ').trim().toLowerCase() === 'colombia'
+    );
+    if (!colombia) return false;
+    if (sel.value === colombia.value) {
+      this.syncInsuranceCountryUi(form, selectName, colombia.text.trim());
+      return false;
+    }
+
+    sel.value = colombia.value;
+    colombia.selected = true;
+    this.dispatch(sel);
+    this.syncInsuranceCountryUi(form, selectName, colombia.text.trim());
+    return true;
+  }
+
+  private syncInsuranceCountryUi(form: HTMLFormElement, selectName: string, label: string): void {
+    const hiddenName = selectName.includes('[destiny]')
+      ? 'searchinsurance[destiny_name]'
+      : 'searchinsurance[origin_name]';
+    const hidden = this.field(form, hiddenName);
+    if (hidden && hidden.value !== label) hidden.value = label;
+
+    const sel = this.select(form, selectName);
+    if (!sel?.id) return;
+    const s2 = form.querySelector(`#select2-${sel.id}-container`);
+    if (s2) {
+      s2.textContent = label;
+      s2.setAttribute('title', label);
+    }
+    const chosen = sel.parentElement?.querySelector('.chosen-single span');
+    if (chosen) chosen.textContent = label;
   }
 
   private applyHotel(form: HTMLFormElement, ctx: SearchContext): boolean {
@@ -328,17 +530,7 @@ export class BookingMotorSearchFormSync {
       if (room.adults > 0) {
         changed = this.setSelectClamped(form, `searchhotel[listrooms][${r}][adults]`, room.adults) || changed;
       }
-      if (room.children > 0) {
-        this.setSelectClamped(form, `searchhotel[listrooms][${r}][children]`, room.children);
-        const childrenSel = this.select(form, `searchhotel[listrooms][${r}][children]`);
-        const effChildren = childrenSel ? this.num(childrenSel.value, 0) : 0;
-        for (let a = 0; a < effChildren; a++) {
-          const age = room.childrenAges[a];
-          if (age === undefined) continue;
-          this.setSelectClamped(form, `searchhotel[listrooms][${r}][childrenages][${a}][age]`, age);
-        }
-        changed = true;
-      }
+      changed = this.applyHotelRoomChildren(form, r, room, ctx, r === 0 ? 0 : this.ageOffset(rooms, r)) || changed;
     }
 
     if (ctx.nationality) {
@@ -346,6 +538,97 @@ export class BookingMotorSearchFormSync {
     }
 
     return changed;
+  }
+
+  private ageOffset(rooms: { children: number }[], roomIndex: number): number {
+    let n = 0;
+    for (let i = 0; i < roomIndex; i++) n += rooms[i]?.children || 0;
+    return n;
+  }
+
+  /**
+   * Writes BM `searchhotel[listrooms][r][children]` and
+   * `...[childrenages][a][age]` (the Edad selects next to each child).
+   */
+  private applyHotelRoomChildren(
+    form: HTMLFormElement,
+    roomIndex: number,
+    room: { children: number; childrenAges?: number[] },
+    ctx: SearchContext,
+    ageOffset: number
+  ): boolean {
+    const kids = Math.max(0, room.children || 0);
+    let changed = this.setSelectClamped(
+      form,
+      `searchhotel[listrooms][${roomIndex}][children]`,
+      kids
+    );
+    if (kids <= 0) return changed;
+
+    const fromRoom = room.childrenAges || [];
+    const fromCtx = (ctx.childrenAges || []).slice(ageOffset, ageOffset + kids);
+    const ages = fromRoom.length > 0 ? fromRoom : fromCtx;
+
+    for (let a = 0; a < kids; a++) {
+      const age = ages[a];
+      if (age === undefined || !Number.isFinite(age)) continue;
+      changed =
+        this.setSelectClamped(
+          form,
+          `searchhotel[listrooms][${roomIndex}][childrenages][${a}][age]`,
+          age
+        ) || changed;
+    }
+    return changed;
+  }
+
+  /** Re-apply only child ages after BM has shown the Edad columns. */
+  applyChildAges(form: HTMLFormElement, type: SearchFormType, ctx: SearchContext): boolean {
+    if (type === 'hotel') {
+      const rooms =
+        ctx.rooms.length > 0
+          ? ctx.rooms
+          : [
+              {
+                adults: ctx.totalAdults,
+                children: ctx.totalChildren,
+                childrenAges: ctx.childrenAges,
+              },
+            ];
+      let changed = false;
+      let offset = 0;
+      for (let r = 0; r < rooms.length; r++) {
+        const room = rooms[r];
+        if (!room) continue;
+        changed = this.applyHotelRoomChildren(form, r, room, ctx, offset) || changed;
+        offset += room.children || 0;
+      }
+      return changed;
+    }
+    if (type === 'transfer' && ctx.totalChildren > 0) {
+      let changed = false;
+      for (let a = 0; a < ctx.totalChildren; a++) {
+        const age = ctx.childrenAges[a];
+        if (age === undefined) continue;
+        changed =
+          this.setSelectClamped(form, `searchtransfer[childrenages][${a}][age]`, age) || changed;
+      }
+      return changed;
+    }
+    if (type === 'activity' && ctx.totalChildren > 0) {
+      let changed = false;
+      for (let a = 0; a < ctx.totalChildren; a++) {
+        const age = ctx.childrenAges[a];
+        if (age === undefined) continue;
+        changed =
+          this.setSelectClamped(form, `searchactivity[childrenages][${a}][age]`, age) || changed;
+      }
+      return changed;
+    }
+    if (type === 'insurance') {
+      return this.applyInsuranceAges(form, ctx);
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------

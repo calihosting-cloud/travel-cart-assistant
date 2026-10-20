@@ -1,4 +1,9 @@
 import { UIInjector } from '../../core/UIInjector';
+import {
+  badgeHostForTableRow,
+  hotelRowMarkKeys,
+  wireBmAddButton,
+} from './BookingMotorInCartBadge';
 
 export class BookingMotorUIInjector extends UIInjector {
   /**
@@ -36,7 +41,7 @@ export class BookingMotorUIInjector extends UIInjector {
           if (desktopActionCell) {
             const bookingLink = desktopActionCell.querySelector('a.btn-success');
             if (bookingLink && !desktopActionCell.querySelector('.btn-tce-add-cart')) {
-              const btn = this.createButton(doc, hotelId, rateIndex, onAddClick);
+              const btn = this.createButton(doc, hotelId, rateIndex, row, onAddClick);
               bookingLink.after(btn);
               injected = true;
             }
@@ -47,7 +52,7 @@ export class BookingMotorUIInjector extends UIInjector {
           if (mobileActionCell) {
             const bookingLink = mobileActionCell.querySelector('a.btn-success');
             if (bookingLink && !mobileActionCell.querySelector('.btn-tce-add-cart')) {
-              const btn = this.createButton(doc, hotelId, rateIndex, onAddClick);
+              const btn = this.createButton(doc, hotelId, rateIndex, row, onAddClick);
               btn.style.marginLeft = '8px';
               bookingLink.after(btn);
               injected = true;
@@ -81,6 +86,7 @@ export class BookingMotorUIInjector extends UIInjector {
     doc: Document,
     hotelId: string,
     rateIndex: number,
+    row: Element,
     onAddClick: (productId: string, optionIndex?: number) => void
   ): HTMLButtonElement {
     const btn = doc.createElement('button');
@@ -97,11 +103,13 @@ export class BookingMotorUIInjector extends UIInjector {
     btn.style.gap = '3px';
     btn.style.cursor = 'pointer';
 
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onAddClick(hotelId, rateIndex);
-    });
+    wireBmAddButton(
+      btn,
+      badgeHostForTableRow(row),
+      doc,
+      hotelRowMarkKeys(row, hotelId, rateIndex),
+      () => onAddClick(hotelId, rateIndex)
+    );
 
     return btn;
   }

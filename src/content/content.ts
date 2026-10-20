@@ -6,15 +6,20 @@ import { BookingMotorActivityDOMReader } from '../engine/providers/bookingmotor/
 import { BookingMotorActivityUIInjector } from '../engine/providers/bookingmotor/BookingMotorActivityUIInjector';
 import { BookingMotorInsuranceDOMReader } from '../engine/providers/bookingmotor/BookingMotorInsuranceDOMReader';
 import { BookingMotorInsuranceUIInjector } from '../engine/providers/bookingmotor/BookingMotorInsuranceUIInjector';
+import { BookingMotorTourProcessDOMReader } from '../engine/providers/bookingmotor/BookingMotorTourProcessDOMReader';
+import { BookingMotorTourProcessUIInjector } from '../engine/providers/bookingmotor/BookingMotorTourProcessUIInjector';
+import { clearAllBmSelectedMarks, registerHotelMarkMergeKey, syncBmMarksWithCart } from '../engine/providers/bookingmotor/BookingMotorInCartBadge';
 import { PageObserver } from '../engine/observer/PageObserver';
 import {
   ActivityCartItem,
+  CartItem,
   FlightCartItem,
   FlightProduct,
   HotelCartItem,
   InsuranceCartItem,
   Occupancy,
   SearchContext,
+  TourCartItem,
   TransferCartItem,
 } from '../engine/core/types';
 import { CartSidebar } from '../ui/CartSidebar';
@@ -30,18 +35,24 @@ import { WingoFlightReader } from '../engine/providers/wingo/WingoFlightReader';
 import { WingoFlightUIInjector } from '../engine/providers/wingo/WingoFlightUIInjector';
 import { JetSmartFlightReader } from '../engine/providers/jetsmart/JetSmartFlightReader';
 import { JetSmartFlightUIInjector } from '../engine/providers/jetsmart/JetSmartFlightUIInjector';
+import { ArajetFlightReader } from '../engine/providers/arajet/ArajetFlightReader';
+import { ArajetFlightUIInjector } from '../engine/providers/arajet/ArajetFlightUIInjector';
 import { appendAppLog } from '../shared/appLog';
-import { readAdvisorNameFromDom, saveAdvisorName } from '../shared/quoteHistory';
+import { readAdvisorNameFromDom, saveAdvisorName, BM_CLEAR_MARKS_KEY } from '../shared/quoteHistory';
 import { loadTrm, saveTrm, todayIso, trmFromPair } from '../shared/trm';
+import { collectSolutionRoomPrices } from '../shared/occupancyRates';
 
 console.log('[TCE] Travel Capture Engine Content Script Loaded.');
 void appendAppLog('info', 'Content script loaded', location.hostname);
 
-type PageType = 'hotel' | 'transfer' | 'activity' | 'insurance';
+type PageType = 'hotel' | 'transfer' | 'activity' | 'insurance' | 'tour';
+
+const CART_STORAGE_KEY = 'tce_cart_items';
 
 let cachedJSPayload: any = null;
 let cachedAviancaDigitalData: any = null;
 let cachedWingoFares: any = null;
+
 const hotelExtractor = new BookingMotorExtractor();
 const transferExtractor = new BookingMotorTransferExtractor();
 const hotelUIInjector = new BookingMotorUIInjector();
@@ -50,11 +61,14 @@ const activityDomReader = new BookingMotorActivityDOMReader();
 const activityUIInjector = new BookingMotorActivityUIInjector();
 const insuranceDomReader = new BookingMotorInsuranceDOMReader();
 const insuranceUIInjector = new BookingMotorInsuranceUIInjector();
+const tourProcessDomReader = new BookingMotorTourProcessDOMReader();
+const tourProcessUIInjector = new BookingMotorTourProcessUIInjector();
 const despegarUIInjector = new DespegarFlightUIInjector();
 const xnetUIInjector = new XNetFlightUIInjector();
 const aviancaUIInjector = new AviancaFlightUIInjector();
 const wingoUIInjector = new WingoFlightUIInjector();
 const jetSmartUIInjector = new JetSmartFlightUIInjector();
+const arajetUIInjector = new ArajetFlightUIInjector();
 
 let cartSidebar: CartSidebar;
 try {
@@ -78,7 +92,7 @@ async function maybeUpdateTrmFromUsdCop(cop?: number, usd?: number): Promise<voi
   const rate = trmFromPair(cop, usd);
   if (!rate) return;
   const existing = await loadTrm();
-  // Prefer official api (dolar-colombia.com) or advisor manual for today.
+  // Prefer official api (configured TRM site) or advisor manual for today.
   if (existing && existing.date === todayIso() && (existing.source === 'api' || existing.source === 'manual')) {
     return;
   }
@@ -171,6 +185,9 @@ function detectPageType(): PageType | null {
   if (document.querySelector('#list-transfer-items')) return 'transfer';
   if (document.querySelector('#list-activity-items, .list-results.list-activity')) return 'activity';
   if (document.querySelector('#list-insurance-items, .bm-insurance-list')) return 'insurance';
+  if (document.querySelector('.bm-book-process #buttonBlock, .bm-book-process #quotationDetail')) {
+    return 'tour';
+  }
   return null;
 }
 
@@ -224,6 +241,14 @@ function handleAddHotelToCart(hotelId: string, rateIndex?: number) {
     }
 
     const resolved = resolveHotelSearchFields(hotel);
+    const occupancy = resolved.occupancy.filter((r) => (r.adults || 0) + (r.children || 0) > 0);
+    const occupancyRoomPrices = collectSolutionRoomPrices(hotel.rates, rateIndex);
+    const prices =
+      occupancyRoomPrices && occupancyRoomPrices.length === occupancy.length
+        ? occupancyRoomPrices
+        : occupancyRoomPrices && occupancy.length === (rate.roomsCount || 0)
+          ? occupancyRoomPrices
+          : undefined;
 
     const cartItem: HotelCartItem = {
       type: 'hotel',
@@ -233,10 +258,13 @@ function handleAddHotelToCart(hotelId: string, rateIndex?: number) {
       stars: hotel.stars,
       address: hotel.address,
       imageUrl: hotel.imageUrl,
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
       checkIn: resolved.checkIn,
       checkOut: resolved.checkOut,
       nights: resolved.nights,
-      occupancy: resolved.occupancy,
+      occupancy,
+      occupancyRoomPrices: prices,
       selectedRate: rate,
       bookingUrl: rate.bookingUrl,
       sourceUrl: typeof location !== 'undefined' ? location.href : undefined,
@@ -244,7 +272,9 @@ function handleAddHotelToCart(hotelId: string, rateIndex?: number) {
     };
 
     logCartItem(cartItem);
-    cartSidebar.addItem(cartItem);
+    void cartSidebar.addItem(cartItem).then(() => {
+      registerHotelMarkMergeKey(document, cartItem);
+    });
   } catch (err) {
     console.error('[TCE] Failed to compile hotel CartItem:', err);
   }
@@ -314,7 +344,22 @@ function handleAddActivityToCart(activityId: string, optionIndex?: number): void
 
     const form = searchFormSync.getForm(document, 'activity');
     const ctx = form ? searchFormSync.capture(form, 'activity') : null;
-    void maybeUpdateTrmFromUsdCop(activity.price, activity.priceUsd);
+    const adults = ctx?.totalAdults || 0;
+    const children = ctx?.totalChildren || 0;
+    const pax = Math.max(1, adults + children);
+    const raw = activity.price;
+    // BM “desde” / por persona → multiply for cart total; group total → divide for $/pers.
+    let priceTotal = raw;
+    let pricePerPerson = raw;
+    if (activity.priceIsPerPerson) {
+      pricePerPerson = raw;
+      priceTotal = raw * pax;
+    } else if (pax > 1) {
+      priceTotal = raw;
+      pricePerPerson = raw / pax;
+    }
+
+    void maybeUpdateTrmFromUsdCop(priceTotal, activity.priceUsd);
 
     const cartItem: ActivityCartItem = {
       type: 'activity',
@@ -324,9 +369,10 @@ function handleAddActivityToCart(activityId: string, optionIndex?: number): void
       description: activity.description,
       checkIn: ctx?.checkIn || '',
       checkOut: ctx?.checkOut,
-      adults: ctx?.totalAdults || 0,
-      children: ctx?.totalChildren || 0,
-      price: activity.price,
+      adults,
+      children,
+      price: priceTotal,
+      pricePerPerson,
       currency: activity.currency,
       priceUsd: activity.priceUsd,
       supplierName: activity.supplierName,
@@ -366,6 +412,8 @@ function handleAddInsuranceToCart(insuranceId: string): void {
       insuranceId: insurance.insuranceId,
       name: insurance.name,
       planLabel: insurance.planLabel,
+      summaryLines: insurance.summaryLines,
+      coverageLines: insurance.coverageLines,
       checkIn: ctx?.checkIn || '',
       checkOut: ctx?.checkOut,
       passengers: (ctx?.totalAdults || 0) + (ctx?.totalChildren || 0) || 1,
@@ -386,6 +434,87 @@ function handleAddInsuranceToCart(insuranceId: string): void {
   } catch (err) {
     console.error('[TCE] Failed to compile insurance CartItem:', err);
     void appendAppLog('error', 'Error agregando seguro');
+  }
+}
+
+function handleAddTourToCart(_tourId: string): void {
+  console.log(`[TCE] Add-to-cart clicked for Tour ID: ${_tourId}`);
+  try {
+    const quote = tourProcessDomReader.extractQuote(document);
+    if (!quote) {
+      console.warn('[TCE] Tour quote not ready (fecha, habitaciones o total faltante).');
+      void appendAppLog('warn', 'Circuito: complete fecha, habitaciones y total antes de agregar');
+      return;
+    }
+
+    const cartItem: TourCartItem = {
+      type: 'tour',
+      id: `cart_item_tour_${quote.tourId}_${Date.now()}`,
+      tourId: quote.tourId,
+      name: quote.name,
+      isBloqueo: quote.isBloqueo,
+      isCombinado: quote.isCombinado,
+      originCity: quote.originCity,
+      destinationCity: quote.destinationCity,
+      departureDate: quote.departureDate,
+      returnDate: quote.returnDate,
+      departureLabel: quote.departureLabel,
+      days: quote.days,
+      nights: quote.nights,
+      adults: quote.adults,
+      children: quote.children,
+      infants: quote.infants,
+      payingPax: quote.payingPax,
+      roomsSummary: quote.roomsSummary,
+      rooms: quote.rooms.filter((r) => r.rooms > 0),
+      occupancyRates: quote.occupancyRates,
+      price: quote.price,
+      pricePerPerson: quote.pricePerPerson,
+      currency: quote.currency,
+      priceEstimated: quote.priceEstimated,
+      category: quote.category,
+      baggageNote: quote.baggageNote,
+      returnLabel: quote.returnLabel,
+      bookingUrl: quote.bookingUrl,
+      sourceUrl: typeof location !== 'undefined' ? location.href : undefined,
+      addedAt: Date.now(),
+    };
+
+    logCartItem(cartItem);
+    const kind = quote.isBloqueo ? 'Bloqueo' : quote.isCombinado ? 'Combinado' : 'Circuito';
+    void appendAppLog(
+      'info',
+      `${kind} agregado: ${quote.name} · ${quote.departureDate}${
+        quote.priceEstimated ? ' (total estimado)' : ''
+      }`
+    );
+
+    // Sticky briefing so hotel/transfer sync and WhatsApp use bloqueo dates/pax.
+    const ctx: SearchContext = {
+      sourceType: 'flight',
+      checkIn: quote.departureDate,
+      checkOut: quote.returnDate,
+      nights: quote.nights,
+      rooms: [
+        {
+          adults: quote.adults + quote.children,
+          children: 0,
+          childrenAges: [],
+        },
+      ],
+      totalAdults: quote.adults + quote.children,
+      totalChildren: 0,
+      childrenAges: [],
+      originText: quote.originCity,
+      destinationText: quote.destinationCity,
+      savedAt: Date.now(),
+    };
+    cartSidebar.setSearchContext(ctx);
+
+    cartSidebar.addItem(cartItem);
+  } catch (err) {
+    console.error('[TCE] Failed to compile tour CartItem:', err);
+    void appendAppLog('error', 'Error agregando circuito/bloqueo');
   }
 }
 
@@ -535,6 +664,26 @@ function handleAddJetSmartFlightToCart(): void {
   pushFlightToCart(flight, 'JetSMART');
 }
 
+function handleAddArajetFlightToCart(): void {
+  const flight = ArajetFlightReader.extract(document);
+  if (!flight) {
+    console.warn('[TCE] Could not read Arajet booking selection.');
+    throw new Error('No Arajet flight data found');
+  }
+  if (!flight.price || flight.price <= 0) {
+    console.warn('[TCE] Arajet total is 0 — select fare first.');
+    throw new Error('NO_TOTAL');
+  }
+  if (
+    flight.routeType === 'roundTrip' &&
+    flight.priceBreakdown.filter((b) => /Ida|Vuelta/i.test(b.description)).length < 2
+  ) {
+    console.warn('[TCE] Arajet round-trip incomplete — select return fare.');
+    throw new Error('NO_TOTAL');
+  }
+  pushFlightToCart(flight, 'Arajet');
+}
+
 function injectWingoFaresProbe(): void {
   try {
     const script = document.createElement('script');
@@ -601,7 +750,7 @@ function injectAviancaDigitalDataProbe(): void {
 }
 
 function logCartItem(
-  item: HotelCartItem | TransferCartItem | FlightCartItem | ActivityCartItem | InsuranceCartItem
+  item: HotelCartItem | TransferCartItem | FlightCartItem | ActivityCartItem | TourCartItem | InsuranceCartItem
 ) {
   console.log('==================================================');
   console.log('         [TCE] PRODUCT ADDED TO CART              ');
@@ -670,6 +819,22 @@ function runExtractionAndInjection() {
     return;
   }
 
+  if (pageType === 'tour') {
+    try {
+      const quotes = tourProcessDomReader.extractAll(document);
+      console.log(`[TCE] Extracted ${quotes.length} tour quote(s).`);
+    } catch (err) {
+      console.error('[TCE] Tour extraction error:', err);
+    }
+
+    try {
+      tourProcessUIInjector.injectButtons(document, handleAddTourToCart);
+    } catch (err) {
+      console.error('[TCE] Tour button injection error:', err);
+    }
+    return;
+  }
+
   try {
     const products = insuranceDomReader.extractAll(document);
     console.log(`[TCE] Extracted ${products.length} insurance products.`);
@@ -713,15 +878,49 @@ function isJetSmartHost(): boolean {
   );
 }
 
-function initJetSmart(): void {
-  console.log('[TCE] JetSMART host detected. Watching selected flight…');
+function isArajetHost(): boolean {
+  if (/(^|\.)arajet\.com$/i.test(location.hostname)) return true;
+  return ArajetFlightReader.hasBookingPage(document);
+}
+
+function initArajet(): void {
+  console.log('[TCE] Arajet host detected. Watching booking fares…', location.href);
+  let debounceTimer: number | undefined;
   const tryInject = () => {
-    if (!JetSmartFlightReader.hasSelectedFlight(document)) return;
-    jetSmartUIInjector.injectButton(document, handleAddJetSmartFlightToCart);
+    try {
+      arajetUIInjector.injectButton(document, handleAddArajetFlightToCart);
+    } catch (err) {
+      console.error('[TCE] Arajet button injection error:', err);
+    }
+  };
+  const scheduleInject = () => {
+    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(tryInject, 200);
   };
   tryInject();
-  const observer = new MutationObserver(tryInject);
-  if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+  [500, 1500, 3000, 6000].forEach((ms) => window.setTimeout(tryInject, ms));
+  const obs = new MutationObserver(scheduleInject);
+  if (document.body) obs.observe(document.body, { childList: true, subtree: true });
+}
+
+function initJetSmart(): void {
+  console.log('[TCE] JetSMART host detected. Watching selected flight…');
+  let debounceTimer: number | undefined;
+  const tryInject = () => {
+    try {
+      jetSmartUIInjector.injectButton(document, handleAddJetSmartFlightToCart);
+    } catch (err) {
+      console.error('[TCE] JetSMART button injection error:', err);
+    }
+  };
+  const scheduleInject = () => {
+    if (debounceTimer !== undefined) window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(tryInject, 150);
+  };
+  tryInject();
+  [500, 1500, 3000, 6000].forEach((ms) => window.setTimeout(tryInject, ms));
+  const obs = new MutationObserver(scheduleInject);
+  if (document.body) obs.observe(document.body, { childList: true, subtree: true });
 }
 
 function initWingo(): void {
@@ -775,9 +974,12 @@ function initAvianca(): void {
   };
 
   tryInject();
+  // Retry: Angular trip summary often renders after document_end.
+  [500, 1500, 3000, 6000].forEach((ms) => window.setTimeout(tryInject, ms));
   const obs = new MutationObserver(scheduleInject);
-  if (document.body) {
-    obs.observe(document.body, { childList: true, subtree: true });
+  const root = document.body || document.documentElement;
+  if (root) {
+    obs.observe(root, { childList: true, subtree: true });
   }
 }
 
@@ -844,6 +1046,24 @@ function initBookingMotor(): void {
   injectBridge();
   observer.start();
 
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+      if (changes[BM_CLEAR_MARKS_KEY]) {
+        clearAllBmSelectedMarks(document);
+        return;
+      }
+      if (changes[CART_STORAGE_KEY]) {
+        const items = Array.isArray(changes[CART_STORAGE_KEY].newValue)
+          ? (changes[CART_STORAGE_KEY].newValue as CartItem[])
+          : [];
+        syncBmMarksWithCart(document, items);
+      }
+    });
+  } catch {
+    // storage unavailable
+  }
+
   const searchSync = new SearchSyncController();
   void searchSync.init();
 }
@@ -858,6 +1078,8 @@ if (isDespegarHost()) {
   initWingo();
 } else if (isJetSmartHost()) {
   initJetSmart();
+} else if (isArajetHost()) {
+  initArajet();
 } else {
   initBookingMotor();
 }

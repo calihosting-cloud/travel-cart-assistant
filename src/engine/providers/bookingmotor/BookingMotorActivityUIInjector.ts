@@ -1,4 +1,5 @@
 import { UIInjector } from '../../core/UIInjector';
+import { activityMarkKey, badgeHostForTableRow, wireBmAddButton } from './BookingMotorInCartBadge';
 
 export class BookingMotorActivityUIInjector extends UIInjector {
   injectButtons(
@@ -34,7 +35,9 @@ export class BookingMotorActivityUIInjector extends UIInjector {
     const activityId = this.extractActivityId(bookingLink.href);
     if (!activityId) return;
 
-    bookingLink.after(this.createButton(doc, activityId, onAddClick));
+    bookingLink.after(
+      this.createButton(doc, activityId, block, bookingLink.href, onAddClick)
+    );
     block.setAttribute('data-tce-injected', 'true');
   }
 
@@ -69,11 +72,20 @@ export class BookingMotorActivityUIInjector extends UIInjector {
 
       let injected = false;
       if (desktop && !desktop.parentElement?.querySelector('.btn-tce-add-cart')) {
-        desktop.after(this.createButton(doc, activityId, onAddClick, optionIndex));
+        desktop.after(
+          this.createButton(doc, activityId, badgeHostForTableRow(row), link.href, onAddClick, optionIndex)
+        );
         injected = true;
       }
       if (mobile && !mobile.parentElement?.querySelector('.btn-tce-add-cart')) {
-        const btn = this.createButton(doc, activityId, onAddClick, optionIndex);
+        const btn = this.createButton(
+          doc,
+          activityId,
+          badgeHostForTableRow(row),
+          link.href,
+          onAddClick,
+          optionIndex
+        );
         btn.style.marginLeft = '8px';
         mobile.after(btn);
         injected = true;
@@ -96,6 +108,8 @@ export class BookingMotorActivityUIInjector extends UIInjector {
   private createButton(
     doc: Document,
     activityId: string,
+    host: Element,
+    bookingUrl: string,
     onAddClick: (productId: string, optionIndex?: number) => void,
     optionIndex?: number
   ): HTMLButtonElement {
@@ -108,11 +122,9 @@ export class BookingMotorActivityUIInjector extends UIInjector {
     btn.style.padding = '1px 5px';
     btn.style.fontSize = '11px';
     btn.style.cursor = 'pointer';
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onAddClick(activityId, optionIndex);
-    });
+    wireBmAddButton(btn, host, doc, [activityMarkKey(activityId, bookingUrl)], () =>
+      onAddClick(activityId, optionIndex)
+    );
     return btn;
   }
 }

@@ -46,6 +46,8 @@ export class BookingMotorExtractor extends Extractor<HotelSearchContext, DOMHote
         stars: hotel.stars,
         address: hotel.address,
         imageUrl: hotel.imageUrl,
+        latitude: hotel.latitude,
+        longitude: hotel.longitude,
         checkIn: context.checkIn,
         checkOut: context.checkOut,
         nights: context.nights,

@@ -1,4 +1,5 @@
 import { UIInjector } from '../../core/UIInjector';
+import { insuranceMarkKey, wireBmAddButton } from './BookingMotorInCartBadge';
 
 export class BookingMotorInsuranceUIInjector extends UIInjector {
   injectButtons(
@@ -22,7 +23,7 @@ export class BookingMotorInsuranceUIInjector extends UIInjector {
       const insuranceId = this.extractInsuranceId(bookingLink.href);
       if (!insuranceId) continue;
 
-      const btn = this.createButton(doc, insuranceId, onAddClick);
+      const btn = this.createButton(doc, insuranceId, block, onAddClick);
       bookingLink.parentElement?.appendChild(btn) || bookingLink.after(btn);
       block.setAttribute('data-tce-injected', 'true');
     }
@@ -36,6 +37,7 @@ export class BookingMotorInsuranceUIInjector extends UIInjector {
   private createButton(
     doc: Document,
     insuranceId: string,
+    block: Element,
     onAddClick: (productId: string, optionIndex?: number) => void
   ): HTMLButtonElement {
     const btn = doc.createElement('button');
@@ -44,11 +46,7 @@ export class BookingMotorInsuranceUIInjector extends UIInjector {
     btn.title = 'Agregar al Carrito GT';
     btn.innerHTML = '+ 🛒 GT';
     btn.style.cursor = 'pointer';
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onAddClick(insuranceId);
-    });
+    wireBmAddButton(btn, block, doc, [insuranceMarkKey(insuranceId)], () => onAddClick(insuranceId));
     return btn;
   }
 }

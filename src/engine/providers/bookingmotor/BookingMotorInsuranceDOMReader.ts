@@ -32,11 +32,15 @@ export class BookingMotorInsuranceDOMReader extends DOMReader<DOMInsuranceData> 
     const imgEl = block.querySelector('img.img-responsive') as HTMLImageElement | null;
 
     const { price, currency, priceUsd } = this.parsePrices(block);
+    const summaryLines = this.listTexts(block, '.summary-item');
+    const coverageLines = this.coverageFromModal(block);
 
     return {
       insuranceId,
       name,
       planLabel,
+      summaryLines: summaryLines.length ? summaryLines : undefined,
+      coverageLines: coverageLines.length ? coverageLines : summaryLines.length ? summaryLines : undefined,
       price,
       currency,
       priceUsd,
@@ -44,6 +48,32 @@ export class BookingMotorInsuranceDOMReader extends DOMReader<DOMInsuranceData> 
       imageUrl: imgEl?.src || undefined,
       bookingUrl: bookingAnchor.href,
     };
+  }
+
+  private listTexts(root: ParentNode, selector: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const el of Array.from(root.querySelectorAll(selector))) {
+      const text = el.textContent?.replace(/\s+/g, ' ').trim() || '';
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      out.push(text);
+    }
+    return out;
+  }
+
+  private coverageFromModal(block: Element): string[] {
+    const doc = block.ownerDocument;
+    const target = block
+      .querySelector('[data-bs-target^="#insuranceModal"]')
+      ?.getAttribute('data-bs-target');
+    const modal =
+      (target && doc?.querySelector(target)) ||
+      (block.nextElementSibling?.classList.contains('bm-insurance-remarks')
+        ? block.nextElementSibling
+        : null);
+    if (!modal) return [];
+    return this.listTexts(modal, '.insurance-summary li, .modal-body li');
   }
 
   private extractInsuranceId(href: string): string | null {

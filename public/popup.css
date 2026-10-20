@@ -203,6 +203,15 @@ header p {
   color: var(--text);
 }
 
+#origin-cities-config .line-row {
+  grid-template-columns: 1fr 28px;
+}
+
+#origin-cities-config .line-row input[type="text"] {
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
 .line-row .emoji-input {
   text-align: center;
   padding-left: 2px;
@@ -249,6 +258,15 @@ header p {
 }
 
 .add-form button:hover { background: #1d4ed8; }
+
+.add-form--wide {
+  grid-template-columns: 1fr 32px;
+}
+
+.add-form--wide input {
+  font-size: 13px;
+  padding: 8px 10px;
+}
 
 .btn-secondary {
   width: 100%;

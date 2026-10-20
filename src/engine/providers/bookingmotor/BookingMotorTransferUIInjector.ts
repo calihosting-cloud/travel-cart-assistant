@@ -1,4 +1,5 @@
 import { UIInjector } from '../../core/UIInjector';
+import { transferMarkKey, wireBmAddButton } from './BookingMotorInCartBadge';
 
 export class BookingMotorTransferUIInjector extends UIInjector {
   injectButtons(
@@ -17,7 +18,7 @@ export class BookingMotorTransferUIInjector extends UIInjector {
       const transferId = this.extractTransferId(bookingLink.href);
       if (!transferId) continue;
 
-      const btn = this.createButton(doc, transferId, onAddClick);
+      const btn = this.createButton(doc, transferId, block, onAddClick);
       btn.style.marginLeft = '8px';
       bookingLink.after(btn);
       block.setAttribute('data-tce-injected', 'true');
@@ -32,6 +33,7 @@ export class BookingMotorTransferUIInjector extends UIInjector {
   private createButton(
     doc: Document,
     transferId: string,
+    block: Element,
     onAddClick: (productId: string, optionIndex?: number) => void
   ): HTMLButtonElement {
     const btn = doc.createElement('button');
@@ -48,11 +50,7 @@ export class BookingMotorTransferUIInjector extends UIInjector {
     btn.style.gap = '3px';
     btn.style.cursor = 'pointer';
 
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onAddClick(transferId);
-    });
+    wireBmAddButton(btn, block, doc, [transferMarkKey(transferId)], () => onAddClick(transferId));
 
     return btn;
   }

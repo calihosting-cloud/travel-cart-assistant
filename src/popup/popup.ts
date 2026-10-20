@@ -15,15 +15,27 @@ import {
   TaConfig,
 } from '../shared/taConfig';
 import {
+  addOriginCity,
+  loadOriginCities,
+  removeOriginCity,
+} from '../shared/originCities';
+import {
+  DEFAULT_TRM_SOURCE,
   DEFAULT_TRM_SUPLEMENTO,
+  loadTrmSource,
   loadTrmSuplemento,
+  normalizeTrmSource,
   normalizeTrmSuplemento,
+  saveTrmSource,
   saveTrmSuplemento,
+  type TrmSourceId,
 } from '../shared/trm';
 
 let lines: QuoteLine[] = [];
 let taConfig: TaConfig = defaultTaConfig();
 let trmSuplemento = DEFAULT_TRM_SUPLEMENTO;
+let trmSource: TrmSourceId = DEFAULT_TRM_SOURCE;
+let originCities: string[] = [];
 
 function setupTabs(): void {
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -163,6 +175,11 @@ function fillTrmSuplementoForm(): void {
   if (el) el.value = String(trmSuplemento);
 }
 
+function fillTrmSourceForm(): void {
+  const el = document.getElementById('trm-source') as HTMLSelectElement | null;
+  if (el) el.value = trmSource;
+}
+
 function bindTaForm(): void {
   const persistTa = () => {
     taConfig = readTaForm();
@@ -183,6 +200,55 @@ function bindTrmSuplementoForm(): void {
   const el = document.getElementById('trm-suplemento');
   el?.addEventListener('change', persistSup);
   el?.addEventListener('blur', persistSup);
+}
+
+function bindTrmSourceForm(): void {
+  const el = document.getElementById('trm-source') as HTMLSelectElement | null;
+  el?.addEventListener('change', () => {
+    trmSource = normalizeTrmSource(el.value);
+    void saveTrmSource(trmSource);
+    void chrome.runtime.sendMessage({ type: 'TCE_REFRESH_TRM', force: true });
+  });
+}
+
+function fillOriginCitiesForm(): void {
+  const list = document.getElementById('origin-cities-config');
+  if (!list) return;
+  list.innerHTML = originCities
+    .map(
+      (c) => `
+      <div class="line-row" data-city="${escapeAttr(c)}">
+        <input type="text" value="${escapeAttr(c)}" readonly />
+        <button type="button" class="btn-del" data-action="delete-origin-city" title="Quitar">✕</button>
+      </div>`
+    )
+    .join('');
+}
+
+function bindOriginCitiesForm(): void {
+  document.getElementById('form-add-origin')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const fd = new FormData(form);
+    const name = String(fd.get('city') || '').trim();
+    if (!name) return;
+    void addOriginCity(name).then((next) => {
+      originCities = next;
+      fillOriginCitiesForm();
+      form.reset();
+    });
+  });
+  document.getElementById('origin-cities-config')?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-action="delete-origin-city"]');
+    if (!btn) return;
+    const row = (btn as HTMLElement).closest('[data-city]') as HTMLElement | null;
+    const city = row?.dataset.city;
+    if (!city) return;
+    void removeOriginCity(city).then((next) => {
+      originCities = next;
+      fillOriginCitiesForm();
+    });
+  });
 }
 
 async function loadChangelog(): Promise<void> {
@@ -206,10 +272,16 @@ async function init(): Promise<void> {
   lines = await loadQuoteLines();
   taConfig = await loadTaConfig();
   trmSuplemento = await loadTrmSuplemento();
+  trmSource = await loadTrmSource();
+  originCities = await loadOriginCities();
   fillTaForm();
   fillTrmSuplementoForm();
+  fillTrmSourceForm();
+  fillOriginCitiesForm();
   bindTaForm();
   bindTrmSuplementoForm();
+  bindTrmSourceForm();
+  bindOriginCitiesForm();
   renderLists();
   bindListEvents();
   bindAddForms();

@@ -17,8 +17,10 @@
     </div>
     <div class="app-header-trm">
       <label for="header-trm-input">TRM</label>
-      <input id="header-trm-input" class="trm-input" type="number" min="0" step="0.01" placeholder="COP" title="TRM del día (dolar-colombia.com)" />
-      <button type="button" class="trm-refresh" data-action="refresh-trm" title="Actualizar desde dolar-colombia.com">web</button>
+      <input id="header-trm-input" class="trm-input" type="number" min="0" step="0.01" placeholder="COP" title="TRM del día (fuente en Config)" />
+      <label for="header-trm-sup" class="trm-sup-label" title="Pesos que se suman a la TRM del día">+</label>
+      <input id="header-trm-sup" class="trm-input trm-sup-input" type="number" min="0" step="10" placeholder="sup" title="Suplemento TRM (COP)" />
+      <button type="button" class="trm-refresh" data-action="refresh-trm" title="Actualizar TRM desde la web (Config)">web</button>
       <span id="header-trm-eff" class="trm-eff" title="TRM usada = día + suplemento"></span>
       <div class="currency-toggle" title="Unificar precios en una moneda">
         <button type="button" class="currency-btn" data-display-currency="COP">COP</button>
@@ -29,23 +31,40 @@
 
   <div class="app-toolbar">
     <label class="toolbar-field">
+      Agencia
+      <input id="header-agency" type="text" maxlength="120" placeholder="Nombre en el PDF" />
+    </label>
+    <label class="toolbar-field">
       Cliente
       <input id="header-client" type="text" maxlength="120" placeholder="Nombre (historial)" />
     </label>
     <div class="toolbar-pax" id="header-pax" title="Viajeros del viaje">—</div>
     <div class="toolbar-route" id="meta-route">Sin ruta</div>
+    <label class="toolbar-field toolbar-mode" title="Minorista: total÷pax · Mayorista: DBL/TPL/CHD">
+      Modo
+      <select id="quote-mode" autocomplete="off">
+        <option value="wholesale" selected>Mayorista</option>
+        <option value="retail">Minorista</option>
+      </select>
+      <button type="button" class="help-q" data-action="wholesale-help" title="Cómo llenar DBL / TPL / CHD">?</button>
+    </label>
     <label class="toolbar-compare" title="Comparar cada opción de hotel con su propio total">
       <input type="checkbox" id="hotels-as-options" />
       Comparar hoteles
     </label>
     <span id="meta-items" class="toolbar-items">0 productos</span>
+    <span id="warnings-bell-slot" class="warnings-bell-slot"></span>
   </div>
+  <div class="quote-coverage" id="quote-coverage" aria-label="Cobertura de la cotización"></div>
+  <div id="warnings-panel" class="warnings-panel-host" aria-live="polite"></div>
 
   <nav class="tabs" role="tablist">
     <button type="button" class="tab active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
-    <button type="button" class="tab" data-tab="carrito" role="tab" aria-selected="false">Carrito</button>
-    <button type="button" class="tab" data-tab="whatsapp" role="tab" aria-selected="false">WhatsApp</button>
-    <button type="button" class="tab" data-tab="historial" role="tab" aria-selected="false">Historial</button>
+    <button type="button" class="tab" data-tab="acomodacion" role="tab" aria-selected="false" id="tab-acomodacion" hidden>🛏️ Acomodación</button>
+    <button type="button" class="tab" data-tab="productos" role="tab" aria-selected="false">🛒 Productos</button>
+    <button type="button" class="tab" data-tab="total" role="tab" aria-selected="false" id="tab-total" hidden>💰 Total</button>
+    <button type="button" class="tab" data-tab="whatsapp" role="tab" aria-selected="false" id="tab-whatsapp" hidden>💬 WhatsApp</button>
+    <button type="button" class="tab" data-tab="historial" role="tab" aria-selected="false">🕘 Historial</button>
     <button type="button" class="tab" data-tab="config" role="tab" aria-selected="false">Config</button>
   </nav>
 
@@ -65,30 +84,73 @@
       </div>
     </section>
 
-    <section id="panel-carrito" class="panel" role="tabpanel">
-      <div class="carrito-split">
-        <div class="carrito-left">
-          <div class="card card--fill">
-            <div class="card-head">
-              <h2>Productos</h2>
-              <div class="card-head-actions">
-                <button type="button" class="btn-ghost btn-sm" data-action="add-hotel-option" id="btn-add-option" hidden>+ Nueva opción</button>
-                <button type="button" class="btn-danger btn-sm" data-action="clear-cart" id="btn-clear-cart" title="Archiva la cotización en historial y vacía el carrito">Vaciar carrito</button>
-              </div>
-            </div>
-            <div id="productos-list" class="item-list"></div>
-            <div id="compare-block" class="compare-block" hidden></div>
+    <section id="panel-productos" class="panel" role="tabpanel">
+      <div class="card briefing-card" id="briefing-card">
+        <div class="card-head">
+          <h2>Viaje (briefing)</h2>
+          <div class="card-head-actions">
+            <button type="button" class="help-q" data-action="wholesale-help" title="Cómo llenar DBL / TPL / CHD">?</button>
+            <button type="button" class="btn-ghost btn-sm" data-action="new-search" id="btn-new-search" title="Limpia el formulario del viaje y la última búsqueda. El carrito vacío no borra esto solo.">Nueva búsqueda</button>
+            <button type="button" class="btn-ghost btn-sm btn-save-briefing btn-save-need" data-action="save-briefing" id="btn-save-briefing">Guardar viaje</button>
           </div>
         </div>
-        <div class="carrito-right">
-          <div class="card">
-            <h2>Fees y TA</h2>
-            <div id="total-fees"></div>
+        <div class="briefing-grid">
+          <div id="briefing-trip-fields">
+          <label>Origen
+            <input id="brief-origin" list="origin-cities-list" type="text" maxlength="80" placeholder="Elige o escribe" />
+            <datalist id="origin-cities-list"></datalist>
+          </label>
+          <label class="brief-dest-wrap">Destino
+            <span class="brief-dest-row">
+              <input id="brief-dest" list="bm-dests-list" type="text" maxlength="80" placeholder="Se copia de Hoteles BM" title="No lo escribas: busca el destino en Hoteles BM y se copia el nombre exacto." />
+              <button type="button" id="btn-dest-pin" class="dest-pin" data-action="toggle-dest-pin" title="Fijar destino — no lo cambien otras búsquedas">Fijar</button>
+            </span>
+            <datalist id="bm-dests-list"></datalist>
+          </label>
+          <div class="briefing-dates">
+            <label>Ida
+              <input id="brief-in" class="brief-date" type="date" />
+            </label>
+            <label>Regreso
+              <input id="brief-out" class="brief-date" type="date" />
+            </label>
           </div>
-          <div class="card">
-            <h2>Totales</h2>
-            <div id="total-totals"></div>
           </div>
+          <label class="briefing-nights-field">Noches
+            <span id="brief-nights" class="brief-nights">—</span>
+          </label>
+        </div>
+        <div class="briefing-rooms" id="briefing-rooms">
+          <p class="briefing-rooms-label">Quién viaja (acomodación del cliente)</p>
+          <p id="briefing-rooms-hint" class="briefing-rooms-hint" hidden>
+            Esto es el mix del cliente, no las habitaciones de tarifa en BM. DBL/TPL/CHD de cotización se buscan después.
+          </p>
+          <div id="brief-room-wrap"></div>
+        </div>
+        <p id="briefing-note" class="briefing-note" hidden></p>
+      </div>
+      <div class="card card--fill">
+        <div class="card-head">
+          <h2>Productos</h2>
+          <div class="card-head-actions">
+            <button type="button" class="btn-ghost btn-sm" data-action="add-hotel-option" id="btn-add-option" hidden>+ Nueva opción</button>
+            <button type="button" class="btn-danger btn-sm" data-action="clear-cart" id="btn-clear-cart" title="Archiva si hay productos y limpia también el formulario del viaje">Vaciar carrito</button>
+          </div>
+        </div>
+        <div id="productos-list" class="item-list"></div>
+        <div id="compare-block" class="compare-block" hidden></div>
+      </div>
+    </section>
+
+    <section id="panel-total" class="panel" role="tabpanel">
+      <div class="total-split">
+        <div class="card">
+          <h2>Fees y TA</h2>
+          <div id="total-fees"></div>
+        </div>
+        <div class="card">
+          <h2>Totales</h2>
+          <div id="total-totals"></div>
         </div>
       </div>
     </section>
@@ -96,12 +158,29 @@
     <section id="panel-whatsapp" class="panel" role="tabpanel">
       <p class="hint">
         Puedes editar el texto antes de copiar. Las líneas del catálogo se gestionan en <strong>Config</strong>; aquí marcas cuáles van.
+        Misma base que el carrito lateral (fees, mayor valor, acomodación, bloqueo).
       </p>
       <div id="whatsapp-view" class="quote-workspace quote-workspace--stack"></div>
     </section>
 
+    <section id="panel-acomodacion" class="panel" role="tabpanel">
+      <div class="card" id="accommodation-card" hidden>
+        <h2>Acomodación</h2>
+        <p class="hint">Mix del viaje real (no la sonda BM). Marca el check para incluir el total en WhatsApp/PDF.</p>
+        <div id="accommodation-view"></div>
+      </div>
+      <p id="accommodation-empty" class="hint">Disponible en modo Mayorista.</p>
+    </section>
+
     <section id="panel-historial" class="panel" role="tabpanel">
-      <p class="hint">Historial local de cotizaciones (CAR###).</p>
+      <div class="historial-toolbar">
+        <p class="hint" style="margin:0;flex:1">
+          Historial local (CAR###). Chrome lo borra si <strong>quitas</strong> la extensión: usa <strong>Reload</strong> y <strong>Exportar historial</strong> antes de reinstalar.
+        </p>
+        <button type="button" class="btn-ghost btn-sm" data-action="export-history" title="Descargar respaldo JSON del historial">Exportar historial</button>
+        <button type="button" class="btn-ghost btn-sm" data-action="import-history" title="Fusionar cotizaciones desde un JSON">Importar historial…</button>
+        <input type="file" id="historial-import-file" accept="application/json,.json" hidden />
+      </div>
       <div id="historial-list" class="item-list"></div>
     </section>
 
@@ -114,7 +193,7 @@
       <div class="config-block">
         <h2>Tarifa administrativa (TA)</h2>
         <p class="hint" style="margin-top:0">
-          Valores anuales (COP / USD). En Carrito se elige el tipo y se calcula TA × pasajeros.
+          Valores anuales (COP / USD). En Carrito se elige el tipo; en mayorista la TA se muestra por persona (sumada a tarifa pp).
         </p>
         <div class="ta-grid ta-grid--wide">
           <label>
@@ -128,6 +207,34 @@
           <label>
             Internacional (USD)
             <input id="ta-internacional-usd" type="number" min="0" step="1" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-block">
+        <h2>Ciudades de origen</h2>
+        <p class="hint" style="margin-top:0">
+          Lista del campo Origen (puedes escribir otra). Al guardar un origen nuevo también se agrega.
+        </p>
+        <div id="origin-cities-config" class="line-list"></div>
+        <form class="add-form add-form--wide" id="form-add-origin">
+          <input name="city" type="text" required placeholder="Nueva ciudad…" maxlength="80" />
+          <button type="submit">+</button>
+        </form>
+      </div>
+
+      <div class="config-block">
+        <h2>Fuente TRM</h2>
+        <p class="hint" style="margin-top:0">
+          Sitio preferido para el botón <strong>web</strong> y la carga automática. Si falla, se intenta el otro.
+        </p>
+        <div class="ta-grid">
+          <label>
+            Página de TRM
+            <select id="trm-source">
+              <option value="dolar-colombia">dolar-colombia.com</option>
+              <option value="wilkinson">dolar.wilkinsonpc.com.co</option>
+            </select>
           </label>
         </div>
       </div>
@@ -210,8 +317,13 @@
           </article>
           <article class="domain">
             <span class="badge">Vuelos</span>
-            <p class="domain-name">JetSMART</p>
-            <p class="domain-host">booking.jetsmart.com · *.jetsmart.com</p>
+            <p class="domain-name">JetSMART (Colombia y LatAm)</p>
+            <p class="domain-host">booking.jetsmart.com · *.jetsmart.com · jetsmart.com/co/es</p>
+          </article>
+          <article class="domain">
+            <span class="badge">Vuelos</span>
+            <p class="domain-name">Arajet</p>
+            <p class="domain-host">www.arajet.com · *.arajet.com</p>
           </article>
           <article class="domain">
             <span class="badge badge--dev">Pruebas</span>

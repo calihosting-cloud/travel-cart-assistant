@@ -22,7 +22,7 @@ export function newQuoteLineId(): string {
 export function defaultQuoteLines(): QuoteLine[] {
   return [
     // TARIFA INCLUYE
-    { id: 'inc_air', kind: 'include', emoji: '✈️', text: 'Tiquetes aéreos + equipaje', enabled: true },
+    { id: 'inc_air', kind: 'include', emoji: '✈️', text: 'Tiquetes aéreos', enabled: true },
     { id: 'inc_hotel', kind: 'include', emoji: '🏠', text: 'Alojamiento en los hoteles mencionados', enabled: true },
     { id: 'inc_food', kind: 'include', emoji: '🍴', text: 'Alimentación de acuerdo a lo especificado', enabled: true },
     { id: 'inc_transfer', kind: 'include', emoji: '🚕', text: 'Traslados Aeropuerto - hotel - aeropuerto', enabled: true },
@@ -88,7 +88,7 @@ export function defaultQuoteLines(): QuoteLine[] {
       id: 'pol_8',
       kind: 'policy',
       emoji: '',
-      text: 'Grupos Travel no asume responsabilidad por decisiones migratorias, costos derivados o impedimentos de viaje.',
+      text: 'La agencia no asume responsabilidad por decisiones migratorias, costos derivados o impedimentos de viaje.',
       enabled: true,
     },
   ];
@@ -102,11 +102,23 @@ export function normalizeQuoteLines(stored: unknown): QuoteLine[] {
     const r = raw as Partial<QuoteLine>;
     if (!r.id || !r.kind || typeof r.text !== 'string') continue;
     if (r.kind !== 'include' && r.kind !== 'exclude' && r.kind !== 'policy') continue;
+    let text = r.text;
+    // Migrate branded liability line → generic agency wording.
+    if (
+      r.id === 'pol_8' ||
+      /Grupos Travel no asume responsabilidad por decisiones migratorias/i.test(text)
+    ) {
+      text =
+        'La agencia no asume responsabilidad por decisiones migratorias, costos derivados o impedimentos de viaje.';
+    }
+    if (r.id === 'inc_air' && /Tiquetes aéreos\s*\+\s*equipaje/i.test(text)) {
+      text = 'Tiquetes aéreos';
+    }
     lines.push({
       id: String(r.id),
       kind: r.kind,
       emoji: typeof r.emoji === 'string' ? r.emoji : '',
-      text: r.text,
+      text,
       enabled: r.enabled !== false,
     });
   }

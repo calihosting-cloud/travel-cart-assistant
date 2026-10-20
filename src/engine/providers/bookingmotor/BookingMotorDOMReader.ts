@@ -1,5 +1,6 @@
 import { DOMHotelData, DOMReader } from '../../core/DOMReader';
 import { HotelRoomRate } from '../../core/types';
+import { displayHotelBoardBasis } from '../../../shared/occupancyRates';
 
 export class BookingMotorDOMReader extends DOMReader<DOMHotelData> {
   /**
@@ -31,7 +32,10 @@ export class BookingMotorDOMReader extends DOMReader<DOMHotelData> {
       const imgEl = header.querySelector('.item-image img') as HTMLImageElement | null;
       const imageUrl = imgEl?.src || undefined;
 
-      // 4. Extract Room Rates from rooms table
+      // 4. Coordinates from BM hidden inputs (compare map / PDF)
+      const { latitude, longitude } = this.extractCoords(container, hotelId, block);
+
+      // 5. Extract Room Rates from rooms table
       const rates = this.extractRates(block, hotelId);
 
       hotels.push({
@@ -40,11 +44,35 @@ export class BookingMotorDOMReader extends DOMReader<DOMHotelData> {
         stars,
         address,
         imageUrl,
+        latitude,
+        longitude,
         rates,
       });
     }
 
     return hotels;
+  }
+
+  private extractCoords(
+    container: Document | HTMLElement,
+    hotelId: string,
+    block?: Element
+  ): { latitude?: number; longitude?: number } {
+    const scopes: Array<ParentNode> = [];
+    if (block) scopes.push(block);
+    scopes.push(container);
+    if (typeof document !== 'undefined') scopes.push(document);
+
+    for (const root of scopes) {
+      const latEl = root.querySelector(`#latitud_${hotelId}`) as HTMLInputElement | null;
+      const lngEl = root.querySelector(`#longitude_${hotelId}`) as HTMLInputElement | null;
+      const latitude = latEl?.value ? Number(latEl.value) : NaN;
+      const longitude = lngEl?.value ? Number(lngEl.value) : NaN;
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        return { latitude, longitude };
+      }
+    }
+    return {};
   }
 
   private extractHotelId(block: Element): string | null {
@@ -92,6 +120,7 @@ export class BookingMotorDOMReader extends DOMReader<DOMHotelData> {
         if (mealSpan) {
           boardBasis = mealSpan.textContent?.replace(/\s+/g, ' ').trim() || '';
           boardBasis = boardBasis.replace(/^[,;\s]+/, ''); // Clean leading punctuation
+          boardBasis = displayHotelBoardBasis(boardBasis);
           mealSpan.remove();
         }
 

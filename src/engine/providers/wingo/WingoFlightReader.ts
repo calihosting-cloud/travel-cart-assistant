@@ -66,7 +66,15 @@ export class WingoFlightReader {
 
     let origin = fromUrl?.origin || '';
     let destination = fromUrl?.destination || '';
-    const legs = readLegsFromDom(doc, origin, destination, fromUrl);
+    let legs = readLegsFromDom(doc, origin, destination, fromUrl);
+    const summaryBaggage = readIncludedBaggage(doc);
+    if (summaryBaggage.length) {
+      legs = legs.map((leg) =>
+        leg.baggageIncluded?.length
+          ? leg
+          : { ...leg, baggageIncluded: [...summaryBaggage] }
+      );
+    }
 
     // Passengers step has no /search/... URL — recover route/dates from travel cards.
     if (!origin && legs[0]?.segments[0]?.departure.airportCode) {
@@ -154,15 +162,33 @@ function readIncludedBaggage(doc: Document): string[] {
     const text = (row.textContent || '').replace(/\s+/g, ' ').trim();
     if (!/\bIncluido\b/i.test(text)) continue;
 
-    const service = row.querySelector('w-mo-service-title');
-    const serviceText = (service?.textContent || text)
+    const service = row.querySelector('w-mo-service-title w-label span');
+    const serviceText = (service?.textContent || '')
       .replace(/\s+/g, ' ')
-      .replace(/\b\d+\s+Incluido\b.*$/i, '')
       .trim();
     if (!/morral|cartera|artículo personal|equipaje|maleta/i.test(serviceText)) continue;
     if (serviceText && !included.includes(serviceText)) included.push(serviceText);
   }
   return included;
+}
+
+function parseWingoStops(text: string): number {
+  if (/Directo/i.test(text)) return 0;
+  const m = text.match(/(\d+)\s*escala/i);
+  if (m) return Math.max(1, Number(m[1]) || 1);
+  return /escala/i.test(text) ? 1 : 0;
+}
+
+function readCardBaggage(card: Element): string[] | undefined {
+  const text = (card.textContent || '').replace(/\s+/g, ' ').trim();
+  const hits: string[] = [];
+  for (const m of text.matchAll(
+    /(\d+\s+(?:morral|cartera|artículo personal|equipaje[^,.]*|maleta[^,.]*))/gi
+  )) {
+    const v = m[1].trim();
+    if (v && !hits.includes(v)) hits.push(v);
+  }
+  return hits.length ? hits : undefined;
 }
 
 function readTotal(doc: Document): { price: number; currency: string } {
@@ -225,7 +251,8 @@ function readLegsFromDom(
 
   if (cards.length > 0) {
     cards.forEach((card, index) => {
-      const text = card.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const info = card.querySelector('w-mo-flight-information');
+      const text = (info?.textContent || card.textContent || '').replace(/\s+/g, ' ').trim();
       const flightNum = text.match(/P5\s*\d+/i)?.[0]?.replace(/\s+/g, ' ') || undefined;
       const times = [...text.matchAll(/(\d{1,2}:\d{2}\s*(?:a\.m\.|p\.m\.|am|pm)?)/gi)].map(
         (x) => x[1]
@@ -280,9 +307,10 @@ function readLegsFromDom(
         dateLabel: cardDate || (isReturn ? fromUrl?.returnDate : fromUrl?.departDate),
         routeDescription: `${dep?.city || depCode} - ${arr?.city || arrCode}`,
         duration,
-        stops: /Directo/i.test(text) ? 0 : 1,
+        stops: parseWingoStops(text),
         airlines: ['Wingo'],
         segments: [segment],
+        baggageIncluded: readCardBaggage(card),
       });
     });
     return legs;

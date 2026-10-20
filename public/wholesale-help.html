@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ayuda mayorista — Carrito GT</title>
+  <style>
+    :root {
+      --ink: #102033;
+      --muted: #4b6278;
+      --blue: #dbeafe;
+      --blue-b: #93c5fd;
+      --teal: #0f6e6a;
+      --paper: #f7f4ef;
+      --card: #fff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #e8f1f8 0%, var(--paper) 40%);
+      line-height: 1.5;
+    }
+    .wrap { width: min(100% - 2rem, 900px); margin: 0 auto; padding: 2rem 0 3rem; }
+    h1 { font-size: 1.55rem; margin: 0 0 0.4rem; }
+    h2 { font-size: 1.15rem; margin: 1.5rem 0 0.55rem; }
+    .lede { color: var(--muted); margin: 0 0 1.1rem; }
+    .toc {
+      display: flex; flex-wrap: wrap; gap: 0.4rem;
+      margin: 0 0 1.4rem; padding: 0; list-style: none;
+    }
+    .toc a {
+      text-decoration: none; font-size: 0.82rem; font-weight: 600;
+      padding: 0.35rem 0.75rem; border-radius: 999px;
+      background: #fff; border: 1px solid #dbe3ee; color: #1e3a8a;
+    }
+    .toc a:hover { background: var(--blue); }
+    .steps {
+      background: var(--card);
+      border: 1px solid #dbe3ee;
+      border-radius: 14px;
+      padding: 14px 16px 16px 2.1rem;
+      margin: 0 0 1.2rem;
+      box-shadow: 0 8px 24px rgba(16,32,51,.06);
+      color: var(--muted);
+    }
+    .steps li { margin: 0.45rem 0; }
+    .steps strong { color: var(--ink); }
+    .cards { display: grid; gap: 12px; margin-bottom: 1rem; }
+    @media (min-width: 720px) { .cards { grid-template-columns: 1fr 1fr; } }
+    @media (min-width: 960px) { .cards { grid-template-columns: 1fr 1fr 1fr 1fr; } }
+    .card {
+      background: var(--card);
+      border: 1px solid #dbe3ee;
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 8px 24px rgba(16,32,51,.06);
+    }
+    .card h3 { margin: 0 0 6px; font-size: 1.05rem; color: var(--teal); }
+    .card p { margin: 0; font-size: 0.92rem; color: var(--muted); }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--blue);
+      border: 1px solid var(--blue-b);
+      color: #1e3a8a;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-bottom: 8px;
+    }
+    .warn, .ok, .info {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 0.95rem;
+    }
+    .warn {
+      background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
+    }
+    .ok {
+      background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46;
+    }
+    .info {
+      background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a;
+    }
+    ol.follow, ul.follow {
+      margin: 8px 0 0; padding-left: 1.2rem; color: var(--muted);
+    }
+    ol.follow li, ul.follow li { margin: 0.4rem 0; }
+    .kbd {
+      display: inline-block; padding: 0.05rem 0.4rem;
+      border-radius: 6px; background: #eef2f7; border: 1px solid #dbe3ee;
+      font-size: 0.86em; font-weight: 600;
+    }
+    table {
+      width: 100%; border-collapse: collapse; background: #fff;
+      border: 1px solid #dbe3ee; border-radius: 12px; overflow: hidden;
+      font-size: 0.9rem; margin: 0.6rem 0 1rem;
+    }
+    th, td { text-align: left; padding: 0.65rem 0.8rem; border-bottom: 1px solid #e8eef5; vertical-align: top; }
+    th { background: #eff6ff; color: #1e3a8a; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    tr:last-child td { border-bottom: 0; }
+    .chip-demo { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
+    .chip {
+      font-size: 0.78rem; font-weight: 700; padding: 0.25rem 0.55rem;
+      border-radius: 999px; border: 1px solid;
+    }
+    .chip--ok { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+    .chip--miss { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+    footer { margin-top: 2rem; color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Ayuda mayorista — Carrito GT</h1>
+    <p class="lede">
+      Guía rápida para armar una cotización con tarifas por acomodación (SGL / DBL / TPL / CHD),
+      opciones, redondeo y entrega por WhatsApp / PDF.
+    </p>
+    <ul class="toc" aria-label="Secciones">
+      <li><a href="#orden">Orden</a></li>
+      <li><a href="#fechas">Fechas</a></li>
+      <li><a href="#sondas">Sondas BM</a></li>
+      <li><a href="#acomodacion">Acomodación</a></li>
+      <li><a href="#bloqueo">Bloqueo</a></li>
+      <li><a href="#redondeo">Redondeo</a></li>
+      <li><a href="#entrega">WhatsApp / PDF</a></li>
+      <li><a href="#historial">Historial</a></li>
+    </ul>
+
+    <h2 id="orden">1. Orden recomendado</h2>
+    <ol class="steps">
+      <li><strong>Modo Mayorista</strong> en el carrito (o panel).</li>
+      <li>
+        <strong>Preferido: hotel primero en BookingMotor.</strong>
+        De ahí salen destino (ciudad BM), fechas y noches. Luego vuelos, traslados, seguros, etc.
+      </li>
+      <li>
+        Si ya tienes el aéreo: agrega el <strong>vuelo o bloqueo</strong> primero —
+        las fechas/pax se copian a Hoteles, Traslados, Seguros y Actividades en BM.
+      </li>
+      <li>
+        En BM arma las habitaciones de <strong>tarifa</strong> (sonda): 1 adt = SGL, 2 adt = DBL,
+        3 adt = TPL (si aplica), 2 adt + niño = CHD. Botón <span class="kbd">+ 🛒</span>.
+      </li>
+      <li>
+        Pestaña <strong>Acomodación</strong> (primera en mayorista): arma el mix real del cliente
+        y revisa el chip <em>(Acomodación 2A)</em> hasta que quede en verde.
+      </li>
+      <li>
+        Ajusta mayor valor / redondeo en <strong>Comparar opciones</strong> o en Acomodación.
+        Copia WhatsApp o PDF. <strong>Nueva búsqueda</strong> para otro cliente.
+      </li>
+    </ol>
+    <div class="info">
+      <strong>Chips de cobertura</strong> (bajo la guía): muestran qué falta.
+      <div class="chip-demo">
+        <span class="chip chip--miss">(Acomodación 2A)</span>
+        <span class="chip chip--ok">(Vuelo/Bloqueo)</span>
+        <span class="chip chip--ok">(Hotel 2)</span>
+        <span class="chip chip--miss">(Seguros)</span>
+      </div>
+      Verde = ya hay ítem (o acomodación tocada). Rojo = pendiente.
+      Acomodación arranca en rojo con default 2 adultos en DBL hasta que modifiques el mix.
+    </div>
+
+    <h2 id="fechas">2. Fechas y primera búsqueda</h2>
+    <table>
+      <thead>
+        <tr><th>Orden</th><th>Qué ganas</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Hotel primero</td>
+          <td>Destino exacto BM, sonda DBL/TPL/CHD, kit de traslados con nombre de hotel. Lo más cómodo en mayorista.</td>
+        </tr>
+        <tr>
+          <td>Vuelo / bloqueo primero</td>
+          <td>Fija ruta, ida/regreso y pax. Al abrir BM, las fechas se precargan en los demás formularios.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="lede" style="margin-top:0">
+      No hace falta escribir origen/destino/fechas a mano en el carrito: salen de la primera búsqueda.
+      Si cambias de cliente, usa <strong>Nueva búsqueda</strong> (limpia guía y carrito).
+    </p>
+
+    <h2 id="sondas">3. Tarifas SGL / DBL / TPL / CHD (sonda BM)</h2>
+    <p class="lede">
+      Son precios de <em>tarifa</em>, no el mix del grupo. TPL solo si el cliente pide triple.
+    </p>
+    <div class="cards">
+      <article class="card">
+        <span class="tag">Búsqueda 0</span>
+        <h3>SGL</h3>
+        <p>1 hab · <strong>1 adulto</strong>.<br>SGL pp = total de esa hab.</p>
+      </article>
+      <article class="card">
+        <span class="tag">Búsqueda 1</span>
+        <h3>DBL</h3>
+        <p>1 hab · <strong>2 adultos</strong>.<br>DBL pp = total ÷ 2.</p>
+      </article>
+      <article class="card">
+        <span class="tag">La más común</span>
+        <h3>CHD</h3>
+        <p>1 hab · <strong>2 adultos + 1 niño</strong> (no TPL).<br>CHD = total de esa hab − total DBL.</p>
+      </article>
+      <article class="card">
+        <span class="tag">Si hay triple</span>
+        <h3>TPL</h3>
+        <p>1 hab · <strong>3 adultos</strong>.<br>TPL pp = total ÷ 3.</p>
+      </article>
+    </div>
+    <div class="ok">
+      <strong>Atajo:</strong> en una sola búsqueda BM arma varias hab (2 adt, 3 adt, 2 adt+niño).
+      El carrito lee cada fila y completa SGL/DBL/TPL/CHD. El número real de viajeros se define en
+      <strong>Acomodación</strong>.
+    </div>
+    <div class="warn">
+      <strong>Con niños no uses TPL.</strong> TPL es solo 3 adultos. El niño va en doble + niño (CHD).
+      Si CHD sale raro o negativo, vuelve a sondear DBL y luego 2 adt+niño.
+    </div>
+
+    <h2 id="acomodacion">4. Pestaña Acomodación</h2>
+    <p class="lede">
+      Es la primera pestaña en mayorista: define cuántas personas viajan y cómo se calculan totales.
+    </p>
+    <ol class="follow">
+      <li>Arma el mix (DBL × N, TPL, niños con edad). El chip muestra p. ej. <strong>(Acomodación 5A + 1N)</strong>.</li>
+      <li>Hasta que toques habitaciones/niños, el chip sigue en <strong>rojo</strong> (aunque el default sea 2A).</li>
+      <li><strong>Incluir valor total del mix</strong>: si lo marcas, WhatsApp/PDF muestran el total del grupo.</li>
+      <li><strong>Incluir valor aproximado de comisión</strong>: solo si el total del mix está marcado; elige freelance 10% o agencia 12%. Sale en un <em>segundo mensaje WhatsApp</em> (botón «Copiar comisión», confidencial). No va en la cotización del pasajero ni en el PDF. Base: servicios sin aéreos ni bloqueos, por opción.</li>
+      <li><strong>Redondeo. Automático (Tarifa pp …9)</strong>: on por defecto; redondea la tarifa pp del <em>paquete</em> (hotel + servicios), no solo el hotel.</li>
+      <li><strong>Mostrar TRM del día</strong> / anexo de asistencia en PDF: opcionales. El suplemento TRM nunca se muestra al cliente.</li>
+      <li>La vista cliente son tarifas pp (+ total del mix si está marcado). El desglose asesor (sonda / mayor / …9) no va al cliente.</li>
+    </ol>
+
+    <h2 id="bloqueo">5. Bloqueo aéreo (circuitos BM)</h2>
+    <div class="info">
+      Un <strong>BLOQUEO</strong> en Circuitos es cupo negociado: reemplaza el vuelo suelto
+      (cuenta en el chip <em>Vuelo/Bloqueo</em> y activa TA si aplica).
+    </div>
+    <ul class="follow">
+      <li><strong>WhatsApp / PDF:</strong> nombre, salida, regreso e “Incluye artículo personal…” — <em>sin precio</em>.</li>
+      <li><strong>Tarifa pp:</strong> total del bloqueo ÷ personas que pagan (según habitaciones elegidas en BM). Ese valor se suma a las acomodaciones del paquete.</li>
+      <li>No uses las celdas Individual/Doble/Triple de BM como $/persona: ahí suelen ir totales de habitación.</li>
+    </ul>
+
+    <h2 id="redondeo">6. Mayor valor y redondeo …9</h2>
+    <ol class="follow">
+      <li>
+        En <strong>Comparar opciones</strong>: Mayor SGL / DBL / TPL / CHD por columna.
+        Al salir del campo se suma a esa tarifa hotel. También hay mayor valor cobrado global en Totales
+        (entra en WhatsApp/PDF igual que en las columnas).
+      </li>
+      <li>
+        <strong>Redondeo …9</strong> / <strong>Redondeo. Automático</strong>: aplican a la
+        <em>Tarifa pp del paquete</em> (hotel + vuelo/bloqueo + servicios compartidos).
+        En Totales verás el incremento por acomodación cuando aplica.
+      </li>
+      <li><strong>Restablecer</strong> vuelve a la sonda BM (valores originales del hotel).</li>
+      <li>Guías bajo el mayor: <strong>Sonda</strong> (BM) y, si hubo mayor, <strong>Hotel + mayor</strong>.</li>
+    </ol>
+
+    <h2 id="entrega">7. WhatsApp y PDF</h2>
+    <ul class="follow">
+      <li>Incluye por defecto: <strong>Tiquetes aéreos</strong> (sin “+ equipaje”; el equipaje va en el itinerario).</li>
+      <li>Si hay vuelo comercial o bloqueo, aparece el itinerario aéreo. Sin aéreo, no se inventa texto de vuelos.</li>
+      <li>Maletas del vuelo se detallan en ida/regreso. El precio del aéreo no se lista aparte en mayorista: va dentro de la tarifa pp.</li>
+      <li>Panel <span class="kbd">↗</span>: abre el asistente en otra pestaña (mismo carrito sincronizado).</li>
+    </ul>
+
+    <h2 id="historial">8. Historial</h2>
+    <div class="info">
+      La cotización activa (<strong>CAR###</strong>) se guarda sola al editar (~2 s): productos, tarifas,
+      fees, TA, opciones, mix, depósito, TRM, redondeo, checks y líneas de WhatsApp.
+      También al Copiar WhatsApp, Descargar PDF o Vaciar.
+      Usa <strong>Restaurar al carrito</strong> si la agencia acepta y hay que retomar la reserva en BM.
+    </div>
+
+    <footer>
+      Carrito GT · ayuda mayorista (v1.1.41+) · Abre con el botón <strong>?</strong> del modo Mayorista.
+    </footer>
+  </div>
+</body>
+</html>

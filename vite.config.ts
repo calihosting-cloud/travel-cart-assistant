@@ -18,6 +18,7 @@ export default defineConfig({
         bridge: resolve(__dirname, 'src/content/bridge.ts'),
         popup: resolve(__dirname, 'src/popup/popup.ts'),
         asistente: resolve(__dirname, 'src/asistente/asistente.ts'),
+        quotePdfPage: resolve(__dirname, 'src/ui/quotePdfPage.ts'),
         log: resolve(__dirname, 'src/log/log.ts'),
       },
       output: {

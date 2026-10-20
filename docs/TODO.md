@@ -73,7 +73,8 @@ El panel fullscreen se potencia con un resumen operativo (no va en el lateral es
 
 - 2026-08-04: acordado dual surface (ampliar lateral + panel en otra pestaña); Total/WhatsApp/Historial cómodos en el panel.
 - 2026-08-04: dashboard de stats en el panel (local primero; cloud después).
-- 2026-08-04: mockup visual en `scratch/asistente-panel-mockup.html` (datos ficticios; pestañas Dashboard / Productos / Total / WhatsApp / Historial).
+- 2026-08-04: mockup visual descartado (era confuso vs panel real); UI en `public/asistente.html`.
+- 2026-08-10: eliminado `scratch/asistente-panel-mockup.html`.
 - 2026-08-10: v1.0.35 — `asistente.html` + botón ↗; Dashboard y Config reales; sync storage; layout push sigue pendiente.
 
 **Notas de diseño**
@@ -148,13 +149,13 @@ Objetivo: gestionar usuarios (y luego clientes/configs) sin tocar la BD a mano.
 
 Objetivo: cotización descargable sin depender de un servicio al inicio.
 
-- [ ] Plantilla HTML de cotización (misma info que WhatsApp / Total)
-- [ ] Generar PDF en el navegador (print o librería)
+- [x] Plantilla HTML de cotización (misma info que WhatsApp / Total)
+- [x] Generar PDF en el navegador (print o librería)
 - [ ] (Después) Endpoint FastAPI + Chromium/WeasyPrint si hace falta calidad fija
 
 **Avances**
 
-- _(vacío)_
+- 2026-08-11: `QuotePdf.ts` — HTML print + pestaña `quote-pdf.html` (no `window.open`); mapa Yandex Static embebido como data URL (fallback SVG); coords desde BM (`#latitud_*` / `#longitude_*`) + enrich al generar. Detalle en `docs/CONTEXT.md` → **Export PDF**.
 
 ---
 
@@ -166,10 +167,14 @@ Objetivo: avisos claros y comparar paquetes, sin agente IA vigilando.
 - [ ] UI de avisos en el asistente (no bloqueantes al inicio)
 - [ ] Extender A/B más allá de hoteles (ej. dos vuelos + servicios compartidos)
 - [ ] (Opcional) Botón “Revisar con IA” / ayuda de copy — modelo barato, bajo demanda
+- [x] PDF mayorista con DBL/TPL/CHD (v1.0.49; WhatsApp desde v1.0.47)
+- [ ] (Opcional) Prefill / guía de búsquedas sonda en BM
 
 **Avances**
 
-- _(vacío)_
+- 2026-08-12: modo **Minorista | Mayorista** + briefing sticky + captura asistida DBL/TPL/CHD + plantilla WhatsApp mayorista (v1.0.47).
+- 2026-08-12: **Nro noches** en briefing; panel con paridad (briefing, alimentación, edición DBL/TPL/CHD); cotización pp × pax documentada (v1.0.48).
+- 2026-08-12: PDF mayorista alineado con WhatsApp (DBL/TPL/CHD) (v1.0.49).
 
 ---
 

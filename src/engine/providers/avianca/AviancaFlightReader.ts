@@ -13,7 +13,11 @@ import {
  */
 export class AviancaFlightReader {
   static hasTripSummary(doc: Document): boolean {
-    if (doc.querySelector('trip-summary-page, .trip-summary-content, bound-displayer-pres')) {
+    if (
+      doc.querySelector(
+        'trip-summary-page, .trip-summary-content, .trip-summary-block, bound-displayer-pres, flights-recap-pres, .general-trip-summary-title'
+      )
+    ) {
       return true;
     }
     const cro = doc.documentElement.getAttribute('cro-pag') || '';
@@ -37,8 +41,11 @@ export class AviancaFlightReader {
         digitalData?.product?.[0]?.productInfo?.productDetails?.flightTicket?.bound;
       if (!Array.isArray(bounds) || bounds.length === 0) return null;
 
+      const domBounds = Array.from(
+        doc.querySelectorAll('trip-summary-page bound-displayer-pres, bound-displayer-pres')
+      );
       const legs: FlightLeg[] = bounds.map((bound: any, index: number) =>
-        mapDigitalBound(bound, index)
+        mapDigitalBound(bound, index, domBounds[index])
       );
 
       const first = legs[0];
@@ -72,6 +79,11 @@ export class AviancaFlightReader {
         readLocationsTitle(doc) ||
         `${originCode} - ${destCode}`;
 
+      const tripBaggage = legs.flatMap((l) => l.baggageIncluded || []);
+      const uniqueBaggage = tripBaggage.filter(
+        (b, i, all) => all.findIndex((x) => x.toLowerCase() === b.toLowerCase()) === i
+      );
+
       return {
         id: `avianca_${cartId || Date.now()}`,
         type: 'flight',
@@ -92,7 +104,7 @@ export class AviancaFlightReader {
         price,
         currency,
         priceBreakdown: buildBreakdown(bounds, currency),
-        baggageIncluded: readIncludedBaggage(doc),
+        baggageIncluded: uniqueBaggage.length ? uniqueBaggage : readIncludedBaggage(doc),
         bookingUrl: doc.location?.href,
       };
     } catch (err) {
@@ -110,73 +122,7 @@ export class AviancaFlightReader {
 
     const legs: FlightLeg[] = [];
     for (let i = 0; i < bounds.length; i++) {
-      const bound = bounds[i];
-      const content = bound.querySelector('.content[data-flight], .content');
-      let data: any = null;
-      const raw = content?.getAttribute('data-flight');
-      if (raw) {
-        try {
-          data = JSON.parse(raw);
-        } catch {
-          data = null;
-        }
-      }
-
-      const locations =
-        bound.querySelector('.trip-summary-title .locations')?.textContent?.replace(/\s+/g, ' ').trim() ||
-        '';
-      const dateLabel =
-        bound.querySelector('.trip-summary-title .date')?.textContent?.replace(/\s+/g, ' ').trim() ||
-        '';
-      const depHour =
-        bound.querySelector('.flight-details-left .hour')?.textContent?.trim() || '';
-      const arrHour =
-        bound.querySelector('.flight-details-right .hour')?.textContent?.trim() || '';
-      const duration =
-        bound.querySelector('.flight-segment-detail .information')?.textContent?.replace(/\s+/g, ' ').trim() ||
-        undefined;
-
-      const originCode =
-        data?.origen ||
-        locations.split(/[-–→]/)[0]?.trim().match(/\b([A-Z]{3})\b/)?.[1] ||
-        '';
-      const destCode =
-        data?.destino ||
-        locations.split(/[-–→]/).pop()?.trim().match(/\b([A-Z]{3})\b/)?.[1] ||
-        '';
-
-      const flightNums: string[] = Array.isArray(data?.numeroDeVuelo)
-        ? data.numeroDeVuelo
-        : [];
-      const segments: FlightSegment[] = (flightNums.length ? flightNums : ['AV']).map(
-        (num: string, segIdx: number) => ({
-          airlineCode: String(num).replace(/\d+/g, '') || 'AV',
-          airlineName: 'Avianca',
-          flightNumber: String(num),
-          equipment: Array.isArray(data?.tipoDeAvion) ? data.tipoDeAvion[segIdx] : undefined,
-          departure: {
-            airportCode: segIdx === 0 ? originCode : '',
-            date: '',
-            hour: segIdx === 0 ? depHour : '',
-          },
-          arrival: {
-            airportCode: segIdx === flightNums.length - 1 || flightNums.length === 0 ? destCode : '',
-            date: '',
-            hour: segIdx === flightNums.length - 1 || flightNums.length === 0 ? arrHour : '',
-          },
-        })
-      );
-
-      legs.push({
-        direction: i === 0 ? 'outbound' : 'return',
-        label: i === 0 ? 'IDA' : 'VUELTA',
-        dateLabel,
-        routeDescription: locations || `${originCode} - ${destCode}`,
-        duration,
-        stops: typeof data?.numeroDeEscalas === 'number' ? data.numeroDeEscalas : Math.max(0, segments.length - 1),
-        airlines: ['Avianca'],
-        segments,
-      });
+      legs.push(parseAviancaBound(bounds[i], i));
     }
 
     if (legs.length === 0) {
@@ -208,6 +154,11 @@ export class AviancaFlightReader {
       };
     }
 
+    const tripBaggage = legs.flatMap((l) => l.baggageIncluded || []);
+    const uniqueBaggage = tripBaggage.filter(
+      (b, i, all) => all.findIndex((x) => x.toLowerCase() === b.toLowerCase()) === i
+    );
+
     const { price, currency } = readTotalPrice(doc, []);
     const cartId = this.extractCartId(doc);
     const originCode = legs[0]?.segments[0]?.departure.airportCode || '';
@@ -233,14 +184,201 @@ export class AviancaFlightReader {
       price,
       currency,
       priceBreakdown: [],
-      baggageIncluded: readIncludedBaggage(doc),
+      baggageIncluded: uniqueBaggage.length ? uniqueBaggage : readIncludedBaggage(doc),
       bookingUrl: doc.location?.href,
     };
   }
 }
 
-function readIncludedBaggage(doc: Document): string[] {
-  const text = doc.body?.innerText || '';
+function parseAviancaBound(bound: Element, index: number): FlightLeg {
+  const content = bound.querySelector('.content[data-flight], .content');
+  let data: Record<string, unknown> | null = null;
+  const raw = content?.getAttribute('data-flight');
+  if (raw) {
+    try {
+      data = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      data = null;
+    }
+  }
+
+  const locations =
+    bound.querySelector('.trip-summary-title .locations')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    '';
+  const dateLabel =
+    bound.querySelector('.trip-summary-title .date, time.date')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    '';
+  const dateIso =
+    bound.querySelector('.trip-summary-title time.date, time.date')?.getAttribute('datetime') ||
+    parseDateFromLabel(dateLabel);
+  const flightDetails = bound.querySelector('.flight-details');
+  const depHour =
+    flightDetails?.querySelector('.flight-details-left .hour')?.textContent?.trim() ||
+    bound.querySelector('.flight-details-left .hour')?.textContent?.trim() ||
+    '';
+  const arrHour =
+    flightDetails?.querySelector('.flight-details-right .hour')?.textContent?.trim() ||
+    bound.querySelector('.flight-details-right .hour')?.textContent?.trim() ||
+    '';
+  const duration =
+    flightDetails?.querySelector('.information')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    bound.querySelector('.flight-segment-detail .information')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    undefined;
+  const stopLabel = readAviancaStopLabelFromBound(bound, flightDetails);
+
+  const originCode =
+    String(data?.origen || '') ||
+    flightDetails?.querySelector('.flight-details-left .location')?.textContent?.trim() ||
+    locations.split(/[-–→]/)[0]?.trim().match(/\b([A-Z]{3})\b/)?.[1] ||
+    '';
+  const destCode =
+    String(data?.destino || '') ||
+    flightDetails?.querySelector('.flight-details-right .location')?.textContent?.trim() ||
+    locations.split(/[-–→]/).pop()?.trim().match(/\b([A-Z]{3})\b/)?.[1] ||
+    '';
+
+  const flightNums: string[] = Array.isArray(data?.numeroDeVuelo)
+    ? (data.numeroDeVuelo as string[])
+    : [];
+  const primaryFlight = flightNums[0];
+  const equipment = Array.isArray(data?.tipoDeAvion) ? String(data.tipoDeAvion[0] || '') : undefined;
+
+  const segment: FlightSegment = {
+    airlineCode: primaryFlight?.replace(/\d+/g, '') || 'AV',
+    airlineName: 'Avianca',
+    flightNumber: primaryFlight,
+    equipment: equipment || undefined,
+    departure: {
+      airportCode: originCode,
+      date: dateIso,
+      hour: depHour,
+    },
+    arrival: {
+      airportCode: destCode,
+      date: dateIso,
+      hour: arrHour,
+    },
+  };
+
+  const stopsFromData =
+    typeof data?.numeroDeEscalas === 'number' ? (data.numeroDeEscalas as number) : undefined;
+  const stops =
+    stopsFromData ??
+    parseAviancaStopLabel(stopLabel) ??
+    Math.max(0, flightNums.length - 1);
+
+  const boundText = (bound.textContent || '').replace(/\s+/g, ' ');
+  const fare =
+    String(data?.tarifaSeleccionada || '') ||
+    detectAviancaFareFromText(boundText) ||
+    '';
+  const baggageIncluded = resolveAviancaBaggage(bound, fare);
+
+  return {
+    direction: index === 0 ? 'outbound' : 'return',
+    label: index === 0 ? 'IDA' : 'VUELTA',
+    dateLabel,
+    routeDescription: locations || `${originCode} - ${destCode}`,
+    duration,
+    stops,
+    airlines: ['Avianca'],
+    segments: [segment],
+    baggageIncluded,
+  };
+}
+
+function readAviancaStopLabelFromBound(
+  bound: Element,
+  flightDetails?: Element | null
+): string {
+  const fromDetails =
+    flightDetails?.querySelector('.flight-detail')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    '';
+  if (fromDetails) return fromDetails;
+  const fromBound = bound.querySelector('.flight-detail')?.textContent?.replace(/\s+/g, ' ').trim() || '';
+  if (fromBound) return fromBound;
+  const texts = Array.from(bound.querySelectorAll('.flight-detail'))
+    .map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  return texts[0] || '';
+}
+
+function parseAviancaStopLabel(label: string): number | undefined {
+  if (!label) return undefined;
+  if (/directo/i.test(label)) return 0;
+  const m = label.match(/(\d+)\s*parada/i);
+  if (m) return Number(m[1]) || 1;
+  return /parada|escala|stop|correspondance/i.test(label) ? 1 : undefined;
+}
+
+function readAviancaStopsFromDom(root?: ParentNode | null): number | undefined {
+  if (!root) return undefined;
+  const bound =
+    root instanceof Element
+      ? root
+      : root instanceof Document
+        ? root.documentElement
+        : null;
+  if (!bound) return undefined;
+  const flightDetails = root.querySelector?.('.flight-details') ?? null;
+  return parseAviancaStopLabel(readAviancaStopLabelFromBound(bound, flightDetails));
+}
+
+function parseDateFromLabel(label: string): string {
+  const m = label.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const es = label.match(/(\d{1,2})\s+[A-Za-zÁÉÍÓÚáéíóúñ]+,?\s+(\d{4})/);
+  if (es) {
+    // dateLabel often lacks parseable month in ES — leave empty unless datetime attr present
+  }
+  const timeEl = label.match(/\d{4}-\d{2}-\d{2}/);
+  return timeEl?.[0] || '';
+}
+
+function detectAviancaFareFromText(text: string): string | undefined {
+  // Prefer fare pill next to price: "Classic COP 917.770"
+  const nearPrice = text.match(/\b(Basic|Light|Classic|Flex|Business)\b(?=\s*COP)/i);
+  if (nearPrice) return nearPrice[1].toUpperCase();
+  const any = text.match(/\b(Basic|Light|Classic|Flex|Business)\b/i);
+  return any ? any[1].toUpperCase() : undefined;
+}
+
+function baggageForAviancaFare(fare?: string): string[] {
+  const f = (fare || 'BASIC').toUpperCase();
+  const personal = '1 artículo personal (bolso)';
+  const hand = '1 equipaje de mano (10kg)';
+  const checked = '1 equipaje de bodega (23kg)';
+  if (f.includes('FLEX') || f.includes('CLASSIC')) return [personal, hand, checked];
+  if (f.includes('LIGHT')) return [personal, hand];
+  return [personal];
+}
+
+function resolveAviancaBaggage(
+  root: ParentNode | undefined,
+  fare?: string
+): string[] | undefined {
+  const explicitFare = (fare || '').trim();
+  // Prefer fare family when known — page text often mixes ida + regreso.
+  if (explicitFare) {
+    const mapped = baggageForAviancaFare(explicitFare);
+    if (mapped.length) return mapped;
+  }
+  if (root instanceof Element) {
+    const fromDom = readIncludedBaggage(root);
+    if (fromDom.length) return fromDom;
+    const fareFromBound = detectAviancaFareFromText(
+      (root.textContent || '').replace(/\s+/g, ' ')
+    );
+    if (fareFromBound) return baggageForAviancaFare(fareFromBound);
+  }
+  return undefined;
+}
+
+function readIncludedBaggage(root: ParentNode | Document): string[] {
+  const text =
+    'body' in root && root.body
+      ? root.body.innerText || ''
+      : (root as Element).textContent || '';
   if (!text) return [];
 
   const patterns = [
@@ -262,7 +400,7 @@ function readIncludedBaggage(doc: Document): string[] {
   return values;
 }
 
-function mapDigitalBound(bound: any, index: number): FlightLeg {
+function mapDigitalBound(bound: any, index: number, root?: ParentNode): FlightLeg {
   const segmentsRaw: any[] = Array.isArray(bound.segment) ? bound.segment : [];
   const segments: FlightSegment[] = segmentsRaw.map((seg) => ({
     airlineCode: seg.marketingAirlineCode || 'AV',
@@ -283,14 +421,25 @@ function mapDigitalBound(bound: any, index: number): FlightLeg {
 
   const first = segments[0];
   const last = segments[segments.length - 1];
+  const stopsFromData =
+    typeof bound?.numeroDeEscalas === 'number' ? bound.numeroDeEscalas : undefined;
+  const stopsFromDom = readAviancaStopsFromDom(root);
+  const stops =
+    stopsFromData ??
+    stopsFromDom ??
+    Math.max(0, segments.length - 1);
   return {
     direction: index === 0 ? 'outbound' : 'return',
     label: index === 0 ? 'IDA' : 'VUELTA',
     dateLabel: first?.departure.date,
     routeDescription: `${first?.departure.airportCode || ''} - ${last?.arrival.airportCode || ''}`,
-    stops: Math.max(0, segments.length - 1),
+    stops,
     airlines: ['Avianca'],
     segments,
+    baggageIncluded: resolveAviancaBaggage(
+      root,
+      bound?.fareFamily || bound?.tarifaSeleccionada || bound?.selectedFare
+    ),
   };
 }
 
@@ -305,6 +454,37 @@ function readTotalPrice(doc: Document, bounds: any[]): { price: number; currency
     if (cur) currency = String(cur);
   }
   if (sum > 0) return { price: sum, currency };
+
+  // Prefer explicit trip total before partial fare / sticky snippets
+  const body = doc.body?.innerText || doc.body?.textContent || '';
+  const totalMatch =
+    body.match(/Total\s+de\s+tu\s+reserva\s*:?\s*(COP|USD|EUR)?\s*\$?\s*([\d.]+)/i) ||
+    body.match(/Total\s*:?\s*(COP|USD|EUR)\s*\$?\s*([\d.]+)/i);
+  if (totalMatch) {
+    const cur = (totalMatch[1] || 'COP').toUpperCase();
+    const n = Number(totalMatch[2].replace(/\./g, '').replace(/,/g, ''));
+    if (Number.isFinite(n) && n > 0) return { price: n, currency: cur };
+  }
+
+  // Sum Classic/Flex/Light leg prices when shown as "Classic COP 917.770"
+  const legPrices = [
+    ...body.matchAll(/\b(?:Basic|Light|Classic|Flex|Business)\s+(COP|USD|EUR)\s*([\d.]+)/gi),
+  ].map((m) => ({
+    currency: m[1].toUpperCase(),
+    price: Number(m[2].replace(/\./g, '').replace(/,/g, '')) || 0,
+  }));
+  // Deduplicate near-identical pairs (mobile+desktop duplicates)
+  const uniqueLegs: Array<{ currency: string; price: number }> = [];
+  for (const row of legPrices) {
+    if (!(row.price > 0)) continue;
+    if (uniqueLegs.some((u) => u.price === row.price && u.currency === row.currency)) continue;
+    uniqueLegs.push(row);
+  }
+  if (uniqueLegs.length >= 1) {
+    const currency = uniqueLegs[0].currency;
+    const price = uniqueLegs.reduce((s, r) => s + r.price, 0);
+    if (price > 0) return { price, currency };
+  }
 
   // DOM: look for sticky price / resume
   const candidates = [
@@ -321,13 +501,13 @@ function readTotalPrice(doc: Document, bounds: any[]): { price: number; currency
     if (parsed) return parsed;
   }
 
-  // Last resort: scan body for COP amounts
-  const body = doc.body?.innerText || '';
-  const m = body.match(/COP\s*\$?\s*([\d.]+)/i) || body.match(/\$\s*([\d.]+)/);
-  if (m) {
-    const n = Number(m[1].replace(/\./g, '').replace(/,/g, ''));
-    if (Number.isFinite(n) && n > 0) return { price: n, currency: 'COP' };
-  }
+  // Last resort: largest COP amount on page (avoids picking a single-leg fare)
+  const amounts = [...body.matchAll(/\b(COP|USD|EUR)\s*\$?\s*([\d.]+)/gi)].map((m) => ({
+    currency: m[1].toUpperCase(),
+    price: Number(m[2].replace(/\./g, '').replace(/,/g, '')) || 0,
+  }));
+  const best = amounts.filter((a) => a.price > 0).sort((a, b) => b.price - a.price)[0];
+  if (best) return best;
   return { price: 0, currency: 'COP' };
 }
 

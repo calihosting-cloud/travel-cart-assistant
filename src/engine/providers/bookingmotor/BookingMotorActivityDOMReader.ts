@@ -48,7 +48,7 @@ export class BookingMotorActivityDOMReader extends DOMReader<DOMActivityData> {
     const supplierName =
       block.querySelector('.list-from-generic .text-center p')?.textContent?.trim() || '';
 
-    const { price, currency, priceUsd } = this.parseFromPrices(block);
+    const { price, currency, priceUsd, priceIsPerPerson } = this.parseFromPrices(block);
 
     return {
       activityId,
@@ -57,6 +57,7 @@ export class BookingMotorActivityDOMReader extends DOMReader<DOMActivityData> {
       price,
       currency,
       priceUsd,
+      priceIsPerPerson,
       supplierName,
       imageUrl: imgEl?.src || undefined,
       bookingUrl: bookingAnchor.href,
@@ -81,12 +82,13 @@ export class BookingMotorActivityDOMReader extends DOMReader<DOMActivityData> {
     const supplierName =
       block.querySelector('.list-from-generic .text-center p')?.textContent?.trim() || 'Grupos Travel';
 
+    const priceCell = row.querySelector('td.prices');
     const priceSpan = row.querySelector('td.prices span, span[id^="price_"]');
     const priceText = priceSpan?.textContent?.replace(/\s+/g, ' ').trim() || '';
-    const currencyMatch =
-      row.querySelector('td.prices')?.textContent?.match(/([A-Z]{3})/i) ||
-      priceText.match(/([A-Z]{3})/i);
+    const cellText = (priceCell?.textContent || '').replace(/\s+/g, ' ').trim();
+    const currencyMatch = cellText.match(/([A-Z]{3})/i) || priceText.match(/([A-Z]{3})/i);
     const amount = parseFloat(priceText.replace(/,/g, ''));
+    const priceIsPerPerson = this.looksPerPerson(cellText + ' ' + modality);
 
     return {
       activityId,
@@ -94,6 +96,7 @@ export class BookingMotorActivityDOMReader extends DOMReader<DOMActivityData> {
       description: modality,
       price: Number.isFinite(amount) ? amount : 0,
       currency: (currencyMatch?.[1] || 'COP').toUpperCase(),
+      priceIsPerPerson,
       supplierName,
       imageUrl: imgEl?.src || undefined,
       bookingUrl: bookingAnchor.href,
@@ -111,11 +114,14 @@ export class BookingMotorActivityDOMReader extends DOMReader<DOMActivityData> {
     price: number;
     currency: string;
     priceUsd?: number;
+    priceIsPerPerson: boolean;
   } {
+    const priceBox = block.querySelector('.price');
     const fromEl = block.querySelector('.price em.from, em.from');
     const usdEl = block.querySelector('.price em.supplier, em.supplier');
     const fromText = fromEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
     const usdText = usdEl?.textContent?.replace(/\s+/g, ' ').trim() || '';
+    const boxText = (priceBox?.textContent || '').replace(/\s+/g, ' ').trim();
 
     const main = fromText.match(/([A-Z]{3})\s*([\d.,]+)/i);
     const usd = usdText.match(/USD\s*([\d.,]+)/i);
@@ -123,11 +129,23 @@ export class BookingMotorActivityDOMReader extends DOMReader<DOMActivityData> {
     const currency = (main?.[1] || 'COP').toUpperCase();
     const price = main ? parseFloat(main[2].replace(/,/g, '')) : 0;
     const priceUsd = usd ? parseFloat(usd[1].replace(/,/g, '')) : undefined;
+    // Collapsed “desde” cards are almost always per person.
+    const priceIsPerPerson =
+      !!fromEl || this.looksPerPerson(boxText) || !this.looksGroupTotal(boxText);
 
     return {
       price: Number.isFinite(price) ? price : 0,
       currency,
       priceUsd: priceUsd !== undefined && Number.isFinite(priceUsd) ? priceUsd : undefined,
+      priceIsPerPerson,
     };
+  }
+
+  private looksPerPerson(text: string): boolean {
+    return /por\s*persona|\/\s*pers|\/\s*pax|\bpp\b|desde/i.test(text);
+  }
+
+  private looksGroupTotal(text: string): boolean {
+    return /\btotal\b|grupo|todos\s+los\s+pasajero/i.test(text);
   }
 }
