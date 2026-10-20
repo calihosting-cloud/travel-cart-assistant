@@ -12,6 +12,10 @@ Formato por entrada:
 
 ---
 
+## 2026-10-20 — Skills de proyecto y AGENTS.md
+
+- **Docs**: skills en `.cursor/skills/` (convenciones, arquitectura, pruebas, seguridad, PR, revisión de Ángela Calidad, revisión de Mateo Seguridad, diseño de Andrés el Diseñador, baseline UI, carrito y cotización) y `AGENTS.md` con el mapa de dueños. Sin cambio de código de la extensión.
+
 ## 2026-08-09 — Checkpoint **restaurar** (antes de cambios grandes)
 
 - **Docs**: guía `docs/RESTAURAR.md` y regla Cursor `.cursor/rules/restaurar.mdc` — la palabra clave **restaurar** vuelve al tag/rama `restaurar` / `backup/restaurar`.
