@@ -4,6 +4,14 @@ Más reciente arriba. Formato alineado con el carrito.
 
 ---
 
+## 2026-10-22 — Docs: carga remota / claves duales (extensión 1.1.64)
+
+- **Docs**: `REPORTE_ADMIN_APPS.md` — historial local vs servidor, `serverId` + `numero_car`, payload `history`.
+
+## 2026-10-22 — Reporte para admin / apps
+
+- **Docs**: `REPORTE_ADMIN_APPS.md` — tablas `car_*` + catálogo de endpoints (API 0.2.3) para administradores y creadores de apps.
+
 ## 2026-10-22 — Agencia en búsqueda de contactos (v0.2.3)
 
 - **Added**: `/v1/contactos/search` incluye `agencia` desde `crm.contacts.company` (si existe).

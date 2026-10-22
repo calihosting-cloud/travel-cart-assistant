@@ -216,6 +216,16 @@ export async function listCotizaciones(opts?: {
   });
 }
 
+export async function getCotizacion(id: number): Promise<CarApiResult<CarCotizacion>> {
+  return carApiRequest({ path: `/v1/cotizaciones/${id}` });
+}
+
+export async function getCotizacionByNumero(
+  numeroCar: number
+): Promise<CarApiResult<CarCotizacion>> {
+  return carApiRequest({ path: `/v1/cotizaciones/by-numero/${numeroCar}` });
+}
+
 export async function upsertCotizacion(body: {
   numero_car: number;
   numero_car_ref?: string;

@@ -12,6 +12,17 @@ Formato por entrada:
 
 ---
 
+## 2026-10-22 — Cargar cotizaciones del servidor (v1.1.64)
+
+- **Added**: en Historial, lista del servidor con botón **Cargar** (`car_cotizacion` → carrito).
+- **Changed**: claves duales — `quoteNumber` local + `serverId` / `serverNumeroCar` (no se pisan CAR locales si ya existen).
+- **Changed**: al guardar en API se envía snapshot completo en `payload_json.history` para poder restaurar.
+- **Docs**: actualizado `api/REPORTE_ADMIN_APPS.md` (claves duales / carga remota).
+
+## 2026-10-22 — Reporte API para admin/apps
+
+- **Docs**: `api/REPORTE_ADMIN_APPS.md` con tablas `car_*` y endpoints actuales para pasar a administradores / creadores de apps.
+
 ## 2026-10-22 — Contacto↔teléfono/agencia + icono Grupos Travel (v1.1.63 / API 0.2.3)
 
 - **Changed**: al elegir un contacto se rellenan nombre y teléfono cruzados; si el CRM trae `company`, se pone en **Agencia**.

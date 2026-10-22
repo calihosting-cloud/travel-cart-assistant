@@ -68,6 +68,8 @@ import {
   scheduleHistoryDraft,
   downloadHistoryBackup,
   importHistoryJson,
+  remoteCotizacionToHistoryEntry,
+  slimHistoryEntry,
   type HistoryBuildParams,
   SHOW_TRM_IN_QUOTE_KEY,
   AUTO_ROUND_OCCUPANCY_KEY,
@@ -209,6 +211,7 @@ import {
   ensureContacto,
   formatAsesorLabel,
   getContacto,
+  getCotizacion,
   listCotizaciones,
   loadCrmUserEmail,
   loadCrmUserId,
@@ -355,6 +358,10 @@ export class CartSidebar {
   private trmSource: TrmSourceId = DEFAULT_TRM_SOURCE;
   private history: HistoryEntry[] = [];
   private pendingQuoteNumber: number | null = null;
+  /** Id `car_cotizacion.id` de la cotización activa (clave servidor). */
+  private activeServerId: number | null = null;
+  /** `numero_car` en BD vinculado a la sesión (puede ≠ pending local). */
+  private activeServerNumeroCar: number | null = null;
   private taConfig: TaConfig = defaultTaConfig();
   private taSelection: TaSelection = defaultTaSelection();
   /** While typing TRM / fees / TA, skip full re-renders from storage echoes. */
@@ -1005,6 +1012,8 @@ export class CartSidebar {
     this.tripGuide = null;
     this.fees = this.defaultFees();
     this.pendingQuoteNumber = null;
+    this.activeServerId = null;
+    this.activeServerNumeroCar = null;
     this.clientName = '';
     this.initialDeposit = '';
     this.hotelOptionGroups = [];
@@ -1094,6 +1103,8 @@ export class CartSidebar {
     );
     return {
       quoteNumber,
+      serverId: this.activeServerId || undefined,
+      serverNumeroCar: this.activeServerNumeroCar || undefined,
       advisorName: this.advisorName,
       clientName: this.clientName.trim() || undefined,
       agencyName: this.agencyName.trim() || undefined,
@@ -1160,9 +1171,18 @@ export class CartSidebar {
     reason: string
   ): Promise<void> {
     if (!(await carApiConfigured())) return;
+    // Prefer existing server numero_car so re-saves update the same DB row
+    // even if the local CAR number was remapped to avoid collisions.
+    const numeroCar = this.activeServerNumeroCar || entry.serverNumeroCar || quoteNumber;
+    const historySnap = slimHistoryEntry({
+      ...entry,
+      quoteNumber,
+      serverId: this.activeServerId || entry.serverId,
+      serverNumeroCar: numeroCar,
+    });
     const res = await upsertCotizacion({
-      numero_car: quoteNumber,
-      numero_car_ref: formatQuoteRef(quoteNumber),
+      numero_car: numeroCar,
+      numero_car_ref: formatQuoteRef(numeroCar),
       asesor_id: this.selectedAsesorId || undefined,
       asesor_nombre: this.advisorName || undefined,
       agencia_nombre: this.agencyName || entry.agencyName || undefined,
@@ -1170,7 +1190,12 @@ export class CartSidebar {
       contacto_telefono: this.selectedContactPhone || undefined,
       contacto_id: this.selectedContactId || undefined,
       payload_json: {
+        version: 1,
         reason,
+        savedAt: Date.now(),
+        localQuoteNumber: quoteNumber,
+        history: historySnap,
+        // Legacy flat fields (apps / versiones anteriores)
         quoteMode: entry.quoteMode,
         items: entry.items,
         fees: entry.fees,
@@ -1178,13 +1203,24 @@ export class CartSidebar {
         hotelOptionGroups: entry.hotelOptionGroups,
         clientName: entry.clientName,
         agencyName: entry.agencyName,
-        savedAt: Date.now(),
       },
       origen: 'extension',
     });
     if (res.ok) {
       this.carApiReady = true;
-      void appendAppLog('info', `API: guardada ${formatQuoteRef(quoteNumber)}`);
+      this.activeServerId = res.data.id;
+      this.activeServerNumeroCar = res.data.numero_car;
+      const patched: HistoryEntry = {
+        ...historySnap,
+        serverId: res.data.id,
+        serverNumeroCar: res.data.numero_car,
+      };
+      await upsertHistory(patched);
+      this.history = await loadHistory();
+      void appendAppLog(
+        'info',
+        `API: guardada ${formatQuoteRef(numeroCar)} (db#${res.data.id}, local ${formatQuoteRef(quoteNumber)})`
+      );
       void this.refreshRemoteQuotes();
     } else {
       void appendAppLog('warn', `API cotización: ${res.error}`);
@@ -1361,6 +1397,28 @@ export class CartSidebar {
     }
   }
 
+  /**
+   * Local CAR number for a server row: reuse mapping if known; else use
+   * numero_car when free; else allocate a fresh local number (no collision).
+   */
+  private async resolveLocalNumberForRemote(
+    serverId: number,
+    serverNumeroCar: number
+  ): Promise<{ local: number; remapped: boolean }> {
+    const byServer = this.history.find((h) => h.serverId === serverId);
+    if (byServer) {
+      return { local: byServer.quoteNumber, remapped: byServer.quoteNumber !== serverNumeroCar };
+    }
+    const byNum = this.history.find((h) => h.quoteNumber === serverNumeroCar);
+    if (!byNum || byNum.serverId === serverId) {
+      await commitQuoteNumber(serverNumeroCar);
+      return { local: serverNumeroCar, remapped: false };
+    }
+    const next = await peekNextQuoteNumber();
+    await commitQuoteNumber(next);
+    return { local: next, remapped: true };
+  }
+
   /** Reload a frozen quote into the live cart (for BM reopen / venta efectiva). */
   private async restoreHistoryEntry(quoteNumber: number): Promise<void> {
     const entry = this.history.find((h) => h.quoteNumber === quoteNumber);
@@ -1369,7 +1427,49 @@ export class CartSidebar {
       `¿Restaurar ${formatQuoteRef(quoteNumber)} en el carrito?\nSe reemplazan productos, fees, opciones y modo actuales.`
     );
     if (!ok) return;
+    await this.applyHistoryEntryToCart(entry, `Restaurado ${formatQuoteRef(quoteNumber)}`);
+  }
 
+  /** Cargar cotización desde `car_cotizacion` (requiere API). */
+  private async restoreRemoteQuote(serverId: number): Promise<void> {
+    if (!(await carApiConfigured())) {
+      window.alert('Configura URL + token de Carrito API en el popup.');
+      return;
+    }
+    const res = await getCotizacion(serverId);
+    if (!res.ok) {
+      window.alert(res.error || 'No se pudo cargar la cotización del servidor');
+      return;
+    }
+    const q = res.data;
+    const { local, remapped } = await this.resolveLocalNumberForRemote(q.id, q.numero_car);
+    const entry = remoteCotizacionToHistoryEntry(q, local);
+    if (!entry || entry.items.length === 0) {
+      window.alert(
+        'Esta cotización del servidor no tiene productos recuperables (payload vacío o antiguo).'
+      );
+      return;
+    }
+    const remapNote = remapped
+      ? `\nNúmero local: ${formatQuoteRef(local)} (el ${formatQuoteRef(q.numero_car)} ya existía aquí; no se pisa).`
+      : `\nNúmero local: ${formatQuoteRef(local)}.`;
+    const ok = window.confirm(
+      `¿Cargar ${q.numero_car_ref} (db#${q.id}) en el carrito?${remapNote}\nSe reemplazan productos, fees y opciones actuales.`
+    );
+    if (!ok) return;
+    await upsertHistory(entry);
+    this.history = await loadHistory();
+    await this.applyHistoryEntryToCart(
+      entry,
+      `Cargada ${q.numero_car_ref} · db#${q.id}` +
+        (remapped ? ` · local ${formatQuoteRef(local)}` : '')
+    );
+  }
+
+  private async applyHistoryEntryToCart(
+    entry: HistoryEntry,
+    statusMessage: string
+  ): Promise<void> {
     this.items = freezeHistoryPayload(entry.items);
     this.fees = freezeHistoryPayload({ ...entry.fees });
     this.quoteMode = entry.quoteMode === 'wholesale' ? 'wholesale' : 'retail';
@@ -1438,11 +1538,17 @@ export class CartSidebar {
       this.agencyName = entry.agencyName;
       void saveAgencyName(this.agencyName);
     }
+    if (entry.advisorName) {
+      this.advisorName = entry.advisorName;
+      void saveAdvisorName(this.advisorName);
+    }
     if (entry.searchContext) {
       this.tripGuide = freezeHistoryPayload(entry.searchContext);
       void saveTripGuide(this.tripGuide);
     }
     this.pendingQuoteNumber = entry.quoteNumber;
+    this.activeServerId = entry.serverId ?? null;
+    this.activeServerNumeroCar = entry.serverNumeroCar ?? null;
     await savePendingQuoteNumber(entry.quoteNumber);
     void saveQuoteMode(this.quoteMode);
     void saveHotelsAsOptions(this.hotelsAsOptions);
@@ -1450,9 +1556,9 @@ export class CartSidebar {
     await this.saveToStorage();
     this.panelTab = 'items';
     this.quoteCopyStatus = 'ok';
-    this.quoteStatusMessage = `Restaurado ${formatQuoteRef(quoteNumber)}`;
+    this.quoteStatusMessage = statusMessage;
     this.render();
-    void appendAppLog('info', `Historial restaurado ${formatQuoteRef(quoteNumber)}`);
+    void appendAppLog('info', statusMessage);
   }
 
   private async clearSearchContextStorage(): Promise<void> {
@@ -2843,7 +2949,7 @@ export class CartSidebar {
         display: flex;
         flex-wrap: wrap;
         gap: 6px 10px;
-        align-items: baseline;
+        align-items: center;
         padding: 8px 10px;
         border: 1px solid #e2e8f0;
         border-radius: 8px;
@@ -2851,8 +2957,37 @@ export class CartSidebar {
         background: #f8fafc;
         font-size: 12px;
       }
+      .tce-remote-row-main {
+        flex: 1 1 160px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        align-items: baseline;
+        min-width: 0;
+      }
       .tce-remote-ref { font-weight: 700; color: #9d174d; }
+      .tce-remote-db {
+        font-size: 10px;
+        font-weight: 700;
+        color: #475569;
+        background: #e2e8f0;
+        padding: 1px 6px;
+        border-radius: 99px;
+      }
       .tce-remote-meta { color: #64748b; font-size: 11px; }
+      .tce-remote-load {
+        flex: 0 0 auto;
+        border: 1px solid #9d174d;
+        background: #fff;
+        color: #9d174d;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 5px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .tce-remote-load:hover { background: #fdf2f8; }
       .tce-api-pill {
         display: inline-block;
         font-size: 10px;
@@ -6200,24 +6335,41 @@ export class CartSidebar {
       return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Cargando…</p></div>`;
     }
     if (!this.carApiReady) {
-      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Configura URL + token en el popup (Config → Carrito API).</p></div>`;
+      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Sin conexión API: el historial local sigue disponible. Configura URL + token en el popup (Config → Carrito API) para listar y cargar del servidor.</p></div>`;
     }
     if (this.remoteQuotes.length === 0) {
-      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Aún no hay cotizaciones en la base. Se crean al copiar WhatsApp / PDF / Chat Center.</p></div>`;
+      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Aún no hay cotizaciones en la base. Se crean al copiar WhatsApp / PDF / Chat Center / vaciar.</p></div>`;
     }
     const rows = this.remoteQuotes
       .map((q) => {
         const when = q.created_at ? new Date(q.created_at).toLocaleString('es-CO') : '';
+        const localMap = this.history.find((h) => h.serverId === q.id);
+        const localHint = localMap
+          ? localMap.quoteNumber !== q.numero_car
+            ? ` · local ${formatQuoteRef(localMap.quoteNumber)}`
+            : ''
+          : '';
         return `<div class="tce-remote-row">
-          <span class="tce-remote-ref">${this.escape(q.numero_car_ref)}</span>
-          <span>${this.escape(q.contacto_nombre || '—')}</span>
-          <span class="tce-remote-meta">${this.escape(q.asesor_nombre || '')}</span>
-          <span class="tce-remote-meta">${this.escape(q.agencia_nombre || '')}</span>
-          <span class="tce-remote-meta">${this.escape(when)}</span>
+          <div class="tce-remote-row-main">
+            <span class="tce-remote-ref">${this.escape(q.numero_car_ref)}</span>
+            <span class="tce-remote-db" title="Id en car_cotizacion">db#${q.id}</span>
+            <span>${this.escape(q.contacto_nombre || '—')}</span>
+            <span class="tce-remote-meta">${this.escape(q.asesor_nombre || '')}</span>
+            <span class="tce-remote-meta">${this.escape(q.agencia_nombre || '')}</span>
+            <span class="tce-remote-meta">${this.escape(when)}${this.escape(localHint)}</span>
+          </div>
+          <button type="button" class="tce-remote-load" data-action="load-remote-quote"
+            data-server-id="${q.id}" title="Traer al carrito desde el servidor">
+            Cargar
+          </button>
         </div>`;
       })
       .join('');
-    return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion) · ${this.remoteQuotes.length}</h3>${rows}</div>`;
+    return `<div class="tce-remote-history">
+      <h3>Servidor (car_cotizacion) · ${this.remoteQuotes.length}</h3>
+      <p class="tce-history-hint">Claves: <strong>CAR###</strong> en BD + <strong>db#id</strong>. Si el CAR local ya existe, se asigna otro número local sin pisar.</p>
+      ${rows}
+    </div>`;
   }
 
   private historyItemLineTotal(
@@ -6538,6 +6690,15 @@ export class CartSidebar {
     return `
       <div class="tce-history-item">
         <strong>${formatQuoteRef(h.quoteNumber)}</strong>
+        ${
+          h.serverId
+            ? ` <span class="tce-remote-db" title="Id servidor">db#${h.serverId}</span>${
+                h.serverNumeroCar && h.serverNumeroCar !== h.quoteNumber
+                  ? ` <span class="tce-remote-meta">srv ${formatQuoteRef(h.serverNumeroCar)}</span>`
+                  : ''
+              }`
+            : ''
+        }
         ${h.clientName ? ` · ${this.escape(h.clientName)}` : ''}
         ${h.advisorName ? ` · Asesor: ${this.escape(h.advisorName)}` : ''}
         <div class="tce-history-trip">
@@ -7722,6 +7883,7 @@ export class CartSidebar {
           this.panelTab = next;
           this.quoteCopyStatus = 'idle';
           this.render();
+          if (next === 'history') void this.refreshRemoteQuotes();
         }
       } else if (action === 'refresh-trm') {
         void this.refreshTrmFromApi();
@@ -7758,6 +7920,9 @@ export class CartSidebar {
       } else if (action === 'restore-history') {
         const n = Number(target.dataset.quoteNumber);
         if (n > 0) void this.restoreHistoryEntry(n);
+      } else if (action === 'load-remote-quote') {
+        const sid = Number(target.dataset.serverId);
+        if (sid > 0) void this.restoreRemoteQuote(sid);
       } else if (action === 'pick-contact') {
         const idx = Number(target.dataset.idx);
         if (Number.isFinite(idx) && idx >= 0) void this.pickContactHit(idx);

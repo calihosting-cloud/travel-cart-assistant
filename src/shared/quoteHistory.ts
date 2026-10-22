@@ -32,7 +32,15 @@ export const MANUAL_PACKAGE_ROUND_IDS_KEY = 'tce_manual_package_round_ids';
 
 export interface HistoryEntry {
   id: string;
+  /** Número CAR local (secuencia de la extensión; no debe colisionar en este navegador). */
   quoteNumber: number;
+  /**
+   * Id de fila en `car_cotizacion` (clave servidor).
+   * Independiente de `quoteNumber`: al cargar desde API puede diferir el nº local.
+   */
+  serverId?: number;
+  /** `numero_car` en la BD (puede coincidir o no con `quoteNumber` local). */
+  serverNumeroCar?: number;
   advisorName: string;
   /** Client name for the quote (historial only; not WhatsApp). */
   clientName?: string;
@@ -499,6 +507,8 @@ export async function ensureHistorySurvivedUpdate(): Promise<number> {
 
 export interface HistoryBuildParams {
   quoteNumber: number;
+  serverId?: number;
+  serverNumeroCar?: number;
   advisorName: string;
   clientName?: string;
   agencyName?: string;
@@ -533,6 +543,8 @@ export function buildHistoryEntry(params: HistoryBuildParams): HistoryEntry {
   return {
     id: `hist_${n}_${params.createdAt ?? Date.now()}`,
     quoteNumber: n,
+    serverId: params.serverId,
+    serverNumeroCar: params.serverNumeroCar,
     advisorName: params.advisorName,
     clientName: params.clientName,
     agencyName: params.agencyName,
@@ -694,4 +706,116 @@ export function downloadHistoryBackup(entries: HistoryEntry[], filename?: string
     `carrito-gt-historial-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Shape mínima de `car_cotizacion` para reconstruir historial local. */
+export interface RemoteCotizacionSnapshot {
+  id: number;
+  numero_car: number;
+  numero_car_ref: string;
+  asesor_nombre?: string | null;
+  agencia_nombre?: string | null;
+  contacto_nombre?: string | null;
+  contacto_telefono?: string | null;
+  payload_json: Record<string, unknown>;
+  created_at: string;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Convierte una fila del servidor en HistoryEntry local.
+ * `localQuoteNumber` es la clave local (puede ≠ numero_car del servidor).
+ */
+export function remoteCotizacionToHistoryEntry(
+  q: RemoteCotizacionSnapshot,
+  localQuoteNumber: number
+): HistoryEntry | null {
+  const payload = asRecord(q.payload_json) || {};
+  const nested = asRecord(payload.history);
+  const src = nested || payload;
+
+  const items = Array.isArray(src.items) ? (src.items as CartItem[]) : [];
+  if (items.length === 0) return null;
+
+  const fees =
+    asRecord(src.fees) && typeof src.fees === 'object'
+      ? (src.fees as Record<string, number>)
+      : {};
+
+  const createdAtRaw =
+    typeof src.createdAt === 'number'
+      ? src.createdAt
+      : Date.parse(q.created_at) || Date.now();
+
+  const quoteMode =
+    src.quoteMode === 'wholesale' || src.quoteMode === 'retail'
+      ? src.quoteMode
+      : undefined;
+
+  return slimHistoryEntry({
+    id: `srv_${q.id}_${localQuoteNumber}`,
+    quoteNumber: localQuoteNumber,
+    serverId: q.id,
+    serverNumeroCar: q.numero_car,
+    advisorName:
+      (typeof src.advisorName === 'string' && src.advisorName) ||
+      q.asesor_nombre ||
+      '',
+    clientName:
+      (typeof src.clientName === 'string' && src.clientName) ||
+      q.contacto_nombre ||
+      undefined,
+    agencyName:
+      (typeof src.agencyName === 'string' && src.agencyName) ||
+      q.agencia_nombre ||
+      undefined,
+    destination: typeof src.destination === 'string' ? src.destination : undefined,
+    searchContext: (src.searchContext as SearchContext | null) ?? null,
+    items,
+    fees,
+    taTotal: typeof src.taTotal === 'number' ? src.taTotal : undefined,
+    taSelection: src.taSelection as TaSelection | undefined,
+    trm: typeof src.trm === 'number' ? src.trm : undefined,
+    trmSuplemento: typeof src.trmSuplemento === 'number' ? src.trmSuplemento : undefined,
+    initialDeposit:
+      typeof src.initialDeposit === 'string' ? src.initialDeposit : undefined,
+    grandTotal: typeof src.grandTotal === 'number' ? src.grandTotal : undefined,
+    primaryCurrency:
+      typeof src.primaryCurrency === 'string' ? src.primaryCurrency : undefined,
+    displayCurrency:
+      src.displayCurrency === 'COP' || src.displayCurrency === 'USD'
+        ? src.displayCurrency
+        : undefined,
+    quoteMode,
+    hotelsAsOptions:
+      typeof src.hotelsAsOptions === 'boolean' ? src.hotelsAsOptions : undefined,
+    hotelOptionGroups: Array.isArray(src.hotelOptionGroups)
+      ? (src.hotelOptionGroups as HotelCompareOptionGroup[])
+      : undefined,
+    occupancyTotalOpen:
+      typeof src.occupancyTotalOpen === 'boolean' ? src.occupancyTotalOpen : undefined,
+    commissionApproxOpen:
+      typeof src.commissionApproxOpen === 'boolean'
+        ? src.commissionApproxOpen
+        : undefined,
+    commissionApproxKind:
+      src.commissionApproxKind === 'freelance' || src.commissionApproxKind === 'agency'
+        ? src.commissionApproxKind
+        : undefined,
+    autoRoundOccupancy:
+      typeof src.autoRoundOccupancy === 'boolean' ? src.autoRoundOccupancy : undefined,
+    showTrmInQuote:
+      typeof src.showTrmInQuote === 'boolean' ? src.showTrmInQuote : undefined,
+    includeUsdEquiv:
+      typeof src.includeUsdEquiv === 'boolean' ? src.includeUsdEquiv : undefined,
+    quoteLines: Array.isArray(src.quoteLines)
+      ? (src.quoteLines as QuoteLine[])
+      : undefined,
+    createdAt: createdAtRaw,
+  });
 }
