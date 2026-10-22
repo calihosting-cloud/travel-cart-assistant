@@ -1250,6 +1250,10 @@ export class CartSidebar {
       .map((c, idx) => {
         const phone = this.escape(c.telefono || c.telefono_norm || '—');
         const src = c.source === 'crm' ? 'CRM' : 'Carrito';
+        const agencia = (c.agencia || '').trim();
+        const agenciaHtml = agencia
+          ? `<span class="tce-contact-hit-agency">${this.escape(agencia)}</span>`
+          : '';
         const det =
           c.car_contacto_id != null
             ? `<button type="button" class="tce-contact-hit-det" data-action="contact-detail" data-car-id="${c.car_contacto_id}">Detalles</button>`
@@ -1258,6 +1262,7 @@ export class CartSidebar {
           <button type="button" class="tce-contact-hit-main" data-action="pick-contact" data-idx="${idx}">
             <span class="tce-contact-hit-name">${this.escape(c.nombre)} <span class="tce-contact-src">${src}</span></span>
             <span class="tce-contact-hit-phone">${phone}</span>
+            ${agenciaHtml}
           </button>
           ${det}
         </div>`;
@@ -1269,9 +1274,11 @@ export class CartSidebar {
     const hit = this.contactHits[idx];
     if (!hit) return;
     if (!(await carApiConfigured())) return;
+    const phoneFromHit = (hit.telefono || hit.telefono_norm || '').trim();
+    const nameFromHit = (hit.nombre || '').trim();
     const ensured = await ensureContacto({
-      nombre: hit.nombre,
-      telefono: hit.telefono || hit.telefono_norm || this.selectedContactPhone || undefined,
+      nombre: nameFromHit || this.clientName.trim() || 'Contacto',
+      telefono: phoneFromHit || this.selectedContactPhone || undefined,
       crm_contact_id: hit.crm_contact_id || undefined,
     });
     if (!ensured.ok) {
@@ -1280,10 +1287,20 @@ export class CartSidebar {
     }
     this.selectedContactId = ensured.data.id;
     this.selectedCrmContactId = ensured.data.crm_contact_id || hit.crm_contact_id || null;
+    // Prefer CRM hit values so name↔phone always cross-fill
     this.selectedContactPhone =
-      ensured.data.telefono || ensured.data.telefono_norm || hit.telefono || '';
-    this.clientName = ensured.data.nombre || hit.nombre;
+      phoneFromHit ||
+      ensured.data.telefono ||
+      ensured.data.telefono_norm ||
+      this.selectedContactPhone ||
+      '';
+    this.clientName = nameFromHit || ensured.data.nombre || this.clientName;
     void saveClientName(this.clientName);
+    const agencia = (hit.agencia || '').trim();
+    if (agencia) {
+      this.agencyName = agencia;
+      void saveAgencyName(this.agencyName);
+    }
     this.contactSearchOpen = false;
     this.contactHits = [];
     this.render();
@@ -2802,6 +2819,7 @@ export class CartSidebar {
       }
       .tce-contact-hit-name { font-size: 12px; font-weight: 600; }
       .tce-contact-hit-phone { font-size: 11px; color: #64748b; }
+      .tce-contact-hit-agency { font-size: 10px; color: #0369a1; font-weight: 600; }
       .tce-contact-hit-det {
         flex-shrink: 0;
         border: none;

@@ -4,6 +4,10 @@ Más reciente arriba. Formato alineado con el carrito.
 
 ---
 
+## 2026-10-22 — Agencia en búsqueda de contactos (v0.2.3)
+
+- **Added**: `/v1/contactos/search` incluye `agencia` desde `crm.contacts.company` (si existe).
+
 ## 2026-10-22 — Búsqueda en crm.contacts (conversaciones) (v0.2.2)
 
 - **Fixed**: `/v1/contactos/search` lee `crm.contacts` (contactos de Conversaciones Chat Center, miles de filas), no la tabla Evolution `"Contact"` (~22).

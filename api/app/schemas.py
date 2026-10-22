@@ -48,6 +48,7 @@ class ContactSearchHit(BaseModel):
     nombre: str
     telefono: Optional[str] = None
     telefono_norm: Optional[str] = None
+    agencia: Optional[str] = None
 
 
 class ContactSearchOut(BaseModel):

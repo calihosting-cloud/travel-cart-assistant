@@ -35,6 +35,8 @@ export interface ContactSearchHit {
   nombre: string;
   telefono?: string | null;
   telefono_norm?: string | null;
+  /** Agencia / company del CRM (crm.contacts.company), si existe */
+  agencia?: string | null;
 }
 
 export interface CarCotizacion {

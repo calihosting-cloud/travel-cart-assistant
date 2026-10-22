@@ -12,6 +12,12 @@ Formato por entrada:
 
 ---
 
+## 2026-10-22 — Contacto↔teléfono/agencia + icono Grupos Travel (v1.1.63 / API 0.2.3)
+
+- **Changed**: al elegir un contacto se rellenan nombre y teléfono cruzados; si el CRM trae `company`, se pone en **Agencia**.
+- **Changed**: icono de la extensión = logo Grupos Travel (avioneta), ya no la “T” por defecto de Chrome.
+- **Fixed**: la lista del carrito busca en `crm.contacts` (contactos de Conversaciones), no en la agenda corta de Evolution.
+
 ## 2026-10-22 — Búsqueda Contacto = conversaciones Chat Center (API 0.2.2)
 
 - **Fixed**: la lista del carrito busca en `crm.contacts` (contactos de Conversaciones), no en la agenda corta de Evolution.

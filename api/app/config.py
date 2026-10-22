@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     car_api_host: str = "127.0.0.1"
     car_api_port: int = 8787
     car_api_title: str = "Carrito GT API"
-    car_api_version: str = "0.2.2"
+    car_api_version: str = "0.2.3"
     car_cors_origins: str = ""
     # Prefijo público detrás de nginx (Chat Center: /car-api). Vacío en local.
     car_root_path: str = ""
