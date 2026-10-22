@@ -10,6 +10,8 @@ dist/
 !.env.example
 !api/.env.example
 api/.env
+api/.deploy_secrets*.json
+api/.deployed_api_token.txt
 *.pem
 *.crx
 extension.zip

@@ -4,6 +4,12 @@ Más reciente arriba. Formato alineado con el carrito.
 
 ---
 
+## 2026-10-21 — Despliegue en servidor Chat Center
+
+- **Added**: API instalada en `/opt/carrito-gt-api`, systemd `carrito-gt-api` **active**, migración SQL OK, `/health` + `/v1/me` OK.
+- **Docs**: `DEPLOY_STATUS.md`. Script `scripts/remote_deploy.py` deja de imprimir `-pw` en claro.
+- **Note**: bind `127.0.0.1:8787` (HTTPS/nginx externo pendiente). Token solo en local gitignored.
+
 ## 2026-10-21 — Guía de uso para el equipo
 
 - **Docs**: `GUIA_USO.md` — cómo crear tokens, autenticarse, endpoints con `curl`, flujos típicos y checklist de acceso. Enlace destacado desde `README.md`.

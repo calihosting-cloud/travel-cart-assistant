@@ -12,6 +12,10 @@ Formato por entrada:
 
 ---
 
+## 2026-10-21 — API desplegada en Chat Center
+
+- **Added**: Carrito GT API 0.1.0 en producción (`carrito-gt-api`, tablas `car_*`, health OK en localhost:8787). Ver `api/DEPLOY_STATUS.md`.
+
 ## 2026-10-21 — Guía de uso API (compartible)
 
 - **Docs**: `api/GUIA_USO.md` — tokens, auth, endpoints y ejemplos para pasar al equipo.

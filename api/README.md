@@ -10,7 +10,11 @@ API independiente para guardar/consultar datos del carrito en la **misma Postgre
 
 **Guía completa de uso, tokens y ejemplos curl:** → **[GUIA_USO.md](./GUIA_USO.md)**
 
-También: [DEPLOY.md](./DEPLOY.md) (instalación servidor) · [SECURITY.md](./SECURITY.md) · [CHANGELOG.md](./CHANGELOG.md)
+También: [DEPLOY.md](./DEPLOY.md) (instalación) · [DEPLOY_STATUS.md](./DEPLOY_STATUS.md) (estado prod) · [SECURITY.md](./SECURITY.md) · [CHANGELOG.md](./CHANGELOG.md)
+
+## Estado en servidor (2026-10-21)
+
+API **activa** en el Chat Center: `/opt/carrito-gt-api`, systemd `carrito-gt-api`, tablas `car_*` aplicadas, health OK en `127.0.0.1:8787`. Detalle: [DEPLOY_STATUS.md](./DEPLOY_STATUS.md).
 
 ## Qué incluye
 
