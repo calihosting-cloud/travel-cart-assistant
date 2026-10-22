@@ -12,6 +12,34 @@ Formato por entrada:
 
 ---
 
+## 2026-10-21 — API FastAPI car_* (docs; extensión intacta)
+
+- **Added**: carpeta `api/` — FastAPI 0.1.0 + SQL `car_*` (Postgres Chat Center), auth por token, deploy/seguridad documentados. **No cambia** el código de la extensión.
+- **Docs**: `api/README.md`, `api/DEPLOY.md`, `api/SECURITY.md`, `api/CHANGELOG.md`.
+
+## 2026-10-21 — Isabela fucsia + CAR# en oportunidad (v1.1.59)
+
+- **Changed**: **Abrir Isabela** en color fucsia suave; en el modal queda a la **derecha** de «Respuesta al cliente» (ya no debajo del título).
+- **Added**: en el badge amarillo «Oportunidad de venta #N» del chat, botón **Isabela** a la derecha.
+- **Added**: junto al título del modal se muestra el nº local **CAR…** del carrito (placeholder hasta tablas `car_*`).
+
+## 2026-10-21 — Abrir Isabela en Conversaciones (v1.1.58)
+
+- **Added**: en [Conversaciones](https://chatcrm.grupostravel.com/conversaciones), botón **Abrir Isabela** en el header del chat (junto al contacto).
+- **Changed**: en el modal, el botón va a la izquierda de **Oportunidad de venta #N** (y abre `reservas.grupostravel.com/es/backoffice`).
+
+## 2026-10-21 — Abrir Isabela en ventana de oportunidad (v1.1.57)
+
+- **Added**: en el modal de oportunidad (Conversaciones), botón **Abrir Isabela** a la izquierda de «Mensajes de la solicitud» → abre BookingMotor (`reservas…/book/new`).
+- **Fixed**: «Enviar a Chat Center» pega en **Respuesta al cliente** (no en el composer «Escribe un mensaje…») y prioriza la pestaña Conversaciones.
+
+## 2026-10-21 — Chat Center + Contacto + tab arrastrable (v1.1.56)
+
+- **Added**: botón **Enviar a Chat Center** (carrito y panel) pega la cotización WhatsApp en el textarea de la oportunidad abierta en `chatcrm.grupostravel.com/oportunidades`.
+- **Added**: al abrir una oportunidad, el nombre de **Contacto** del modal se sincroniza al campo Contacto del carrito.
+- **Changed**: el campo del header pasa de «Cliente» a **Contacto** y queda **primero** (antes de Agencia).
+- **Changed**: la pestaña azul **Asistente** se puede arrastrar arriba/abajo (posición guardada).
+
 ## 2026-10-16 — Comisión sin % en WhatsApp (v1.1.55)
 
 - **Changed**: el mensaje de comisión solo muestra el **valor** por opción (sin “10%” / “12%”).

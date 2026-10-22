@@ -1,0 +1,9 @@
+# Python 3.10+ (servidor Chat Center: 3.10.12). No requiere 3.11+.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+slowapi==0.1.9

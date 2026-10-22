@@ -202,6 +202,12 @@ import { airlineLogoUrl, flightPrimaryAirlineCode } from '../shared/airlineLogos
 import { openQuotePdfPrint } from './QuotePdf';
 import { openAsistentePanel } from '../shared/openAsistente';
 import {
+  isChatCenterHost,
+  loadTabTopPct,
+  pasteQuoteIntoChatCenter,
+  saveTabTopPct,
+} from '../shared/chatCenter';
+import {
   addOriginCity,
   BM_DESTINATIONS_KEY,
   destDatalistHtml,
@@ -342,6 +348,8 @@ export class CartSidebar {
   /** Timestamp of last cart/fees write from this tab — distinguish echo vs other tabs/panel. */
   private lastLocalCartWriteAt = 0;
   private lastLocalFeesWriteAt = 0;
+  /** Blue Asistente tab vertical position (% of viewport height). */
+  private tabTopPct = 50;
 
   private isLocalStorageEcho(writtenAt: number, windowMs = 150): boolean {
     return writtenAt > 0 && Date.now() - writtenAt < windowMs;
@@ -405,6 +413,7 @@ export class CartSidebar {
     this.taSelection = await loadTaSelection();
     this.history = await loadHistory();
     this.dismissedWarnings = await loadDismissedWarnings();
+    this.tabTopPct = await loadTabTopPct();
     // Strip legacy hotel-level …9; package …9 is applied in summarizeWholesaleOption.
     if (this.syncAutoRoundOccupancy()) {
       await this.saveToStorage();
@@ -2341,7 +2350,9 @@ export class CartSidebar {
         border: none;
         border-radius: 8px 0 0 8px;
         padding: 12px 8px;
-        cursor: pointer;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         font-size: 13px;
         font-weight: 600;
@@ -2352,6 +2363,10 @@ export class CartSidebar {
         letter-spacing: 0.5px;
       }
       .tce-tab:hover { background: #1d4ed8; }
+      .tce-tab--dragging {
+        cursor: grabbing;
+        transition: background 0.2s, right 0.25s ease;
+      }
       .tce-tab--open { right: 340px; }
       .tce-tab--open.tce-tab--wide { right: 700px; }
       .tce-tab--open.tce-tab--compare { right: 900px; }
@@ -2437,18 +2452,22 @@ export class CartSidebar {
         min-width: 100px;
         max-width: 280px;
       }
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-client,
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-agency {
+      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-client {
         flex: 1 1 calc(100% - 72px);
         max-width: none;
         order: 3;
+      }
+      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-agency {
+        flex: 1 1 calc(100% - 72px);
+        max-width: none;
+        order: 4;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-actions {
         order: 2;
         margin-left: auto;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-hotel-options-toggle {
-        order: 4;
+        order: 5;
       }
       .tce-header-client label,
       .tce-header-agency label {
@@ -4226,6 +4245,10 @@ export class CartSidebar {
         background: #0369a1;
       }
       .tce-quote-btn--pdf:hover { background: #075985; }
+      .tce-quote-btn--chat {
+        background: #0f766e;
+      }
+      .tce-quote-btn--chat:hover { background: #0d9488; }
       .tce-quote-status {
         font-size: 11px;
         color: #16a34a;
@@ -5662,7 +5685,8 @@ export class CartSidebar {
     const routeLabel = this.tripGuide ? 'Guía' : routeSummary ? 'Ruta' : '';
 
     root.innerHTML = `
-      <button class="tce-tab ${this.isOpen ? 'tce-tab--open' : ''}${tabWideClass}" data-action="toggle">
+      <button type="button" class="tce-tab ${this.isOpen ? 'tce-tab--open' : ''}${tabWideClass}" data-action="toggle"
+        style="top:${this.tabTopPct}%" title="Arrastra arriba/abajo · clic para abrir">
         🛒 Asistente
         ${this.items.length > 0 ? `<span class="tce-badge">${this.items.length}</span>` : ''}
       </button>
@@ -5671,6 +5695,17 @@ export class CartSidebar {
           <div class="tce-header-title">
             <h2>Asistente de cotización</h2>
             <span class="tce-header-meta">${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
+          </div>
+          <div class="tce-header-client">
+            <label for="tce-client-input">Contacto</label>
+            <input
+              id="tce-client-input"
+              class="tce-client-input"
+              type="text"
+              maxlength="120"
+              placeholder="Nombre del contacto"
+              value="${this.escape(this.clientName)}"
+            />
           </div>
           <div class="tce-header-agency">
             <label for="tce-agency-input">Agencia</label>
@@ -5681,17 +5716,6 @@ export class CartSidebar {
               maxlength="120"
               placeholder="Nombre en el PDF"
               value="${this.escape(this.agencyName)}"
-            />
-          </div>
-          <div class="tce-header-client">
-            <label for="tce-client-input">Cliente</label>
-            <input
-              id="tce-client-input"
-              class="tce-client-input"
-              type="text"
-              maxlength="120"
-              placeholder="Nombre (historial)"
-              value="${this.escape(this.clientName)}"
             />
           </div>
           <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
@@ -6175,6 +6199,8 @@ export class CartSidebar {
       <textarea class="tce-quote-preview" readonly></textarea>
       <div class="tce-quote-actions">
         <button type="button" class="tce-quote-btn" data-action="copy-quote">Copiar WhatsApp</button>
+        <button type="button" class="tce-quote-btn tce-quote-btn--chat" data-action="send-chat-center"
+          title="Pega la cotización en la oportunidad abierta de Chat Center">Enviar a Chat Center</button>
         <button type="button" class="tce-quote-btn tce-quote-btn--pdf" data-action="download-pdf">Descargar PDF</button>
         <button type="button" class="tce-quote-btn tce-quote-btn--secondary" data-action="preview-quote">Actualizar texto</button>
       </div>
@@ -6297,6 +6323,65 @@ export class CartSidebar {
       this.quoteStatusMessage = '';
       this.render();
     }, 4000);
+  }
+
+  private async sendQuoteToChatCenter(): Promise<void> {
+    if (!this.ensureBriefingOrWarn()) return;
+    const text = await this.buildCurrentQuote();
+    const preview = this.shadow.querySelector('.tce-quote-preview') as HTMLTextAreaElement | null;
+    if (preview) preview.value = text;
+
+    this.quoteCopyStatus = 'idle';
+    this.quoteStatusMessage = 'Enviando a Chat Center…';
+    this.panelTab = 'whatsapp';
+    this.render();
+
+    // Same page: paste directly into the open opportunity modal.
+    if (isChatCenterHost()) {
+      const local = pasteQuoteIntoChatCenter(text, document);
+      if (local.contact) {
+        this.clientName = local.contact;
+        void saveClientName(local.contact);
+      }
+      if (local.ok) await this.archiveCurrentCart('Enviar a Chat Center');
+      this.quoteCopyStatus = local.ok ? 'ok' : 'err';
+      this.quoteStatusMessage = local.ok
+        ? `✓ Pegado en Chat Center${local.contact ? ` · ${local.contact}` : ''}`
+        : local.error || 'No se pudo pegar en Chat Center.';
+      this.render();
+      window.setTimeout(() => {
+        this.quoteCopyStatus = 'idle';
+        this.quoteStatusMessage = '';
+        this.render();
+      }, 4500);
+      return;
+    }
+
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'TCE_SEND_TO_CHAT_CENTER',
+        text,
+      });
+      if (res?.contact && typeof res.contact === 'string') {
+        this.clientName = res.contact;
+        void saveClientName(res.contact);
+      }
+      if (res?.ok) await this.archiveCurrentCart('Enviar a Chat Center');
+      this.quoteCopyStatus = res?.ok ? 'ok' : 'err';
+      this.quoteStatusMessage = res?.ok
+        ? `✓ Pegado en Chat Center${res.contact ? ` · ${res.contact}` : ''}`
+        : res?.error || 'No se pudo pegar en Chat Center.';
+    } catch {
+      this.quoteCopyStatus = 'err';
+      this.quoteStatusMessage =
+        'No se pudo contactar Chat Center. Abre https://chatcrm.grupostravel.com/oportunidades';
+    }
+    this.render();
+    window.setTimeout(() => {
+      this.quoteCopyStatus = 'idle';
+      this.quoteStatusMessage = '';
+      this.render();
+    }, 5000);
   }
 
   private async downloadQuotePdf(): Promise<void> {
@@ -6983,7 +7068,71 @@ export class CartSidebar {
     if (totalsEl) totalsEl.innerHTML = this.renderTotals();
   }
 
+  private bindTabDrag(root: HTMLElement): void {
+    const tab = root.querySelector('.tce-tab') as HTMLElement | null;
+    if (!tab) return;
+
+    let dragging = false;
+    let moved = false;
+    let startY = 0;
+    let startPct = this.tabTopPct;
+
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const dy = e.clientY - startY;
+      if (Math.abs(dy) > 4) moved = true;
+      if (!moved) return;
+      e.preventDefault();
+      const vh = window.innerHeight || 1;
+      const next = Math.min(92, Math.max(8, startPct + (dy / vh) * 100));
+      this.tabTopPct = next;
+      tab.style.top = `${next}%`;
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      tab.classList.remove('tce-tab--dragging');
+      try {
+        tab.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (moved) {
+        void saveTabTopPct(this.tabTopPct);
+        // Prevent the following click from toggling the panel.
+        const blockClick = (ev: Event) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          tab.removeEventListener('click', blockClick, true);
+        };
+        tab.addEventListener('click', blockClick, true);
+      }
+    };
+
+    tab.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      startY = e.clientY;
+      startPct = this.tabTopPct;
+      tab.classList.add('tce-tab--dragging');
+      try {
+        tab.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    });
+  }
+
   private bindEvents(root: HTMLElement): void {
+    this.bindTabDrag(root);
     root.addEventListener('focusin', (e) => {
       const t = e.target as HTMLElement | null;
       if (
@@ -7158,6 +7307,8 @@ export class CartSidebar {
         void this.refreshTrmFromApi();
       } else if (action === 'copy-quote') {
         void this.copyQuoteToClipboard();
+      } else if (action === 'send-chat-center') {
+        void this.sendQuoteToChatCenter();
       } else if (action === 'copy-commission') {
         void this.copyCommissionToClipboard();
       } else if (action === 'download-pdf') {

@@ -38,7 +38,18 @@ import { JetSmartFlightUIInjector } from '../engine/providers/jetsmart/JetSmartF
 import { ArajetFlightReader } from '../engine/providers/arajet/ArajetFlightReader';
 import { ArajetFlightUIInjector } from '../engine/providers/arajet/ArajetFlightUIInjector';
 import { appendAppLog } from '../shared/appLog';
-import { readAdvisorNameFromDom, saveAdvisorName, BM_CLEAR_MARKS_KEY } from '../shared/quoteHistory';
+import {
+  injectOpenIsabelaButton,
+  isChatCenterHost,
+  pasteQuoteIntoChatCenter,
+  readChatCenterContact,
+} from '../shared/chatCenter';
+import {
+  readAdvisorNameFromDom,
+  saveAdvisorName,
+  saveClientName,
+  BM_CLEAR_MARKS_KEY,
+} from '../shared/quoteHistory';
 import { loadTrm, saveTrm, todayIso, trmFromPair } from '../shared/trm';
 import { collectSolutionRoomPrices } from '../shared/occupancyRates';
 
@@ -77,6 +88,53 @@ try {
   console.error('[TCE] CartSidebar failed to init:', err);
   throw err;
 }
+
+/** Chat Center: Contacto sync, Isabela button, paste from other tabs. */
+if (isChatCenterHost()) {
+  let lastChatContact = '';
+  const syncChatCenterUi = (): void => {
+    injectOpenIsabelaButton(document);
+    const name = readChatCenterContact(document);
+    if (!name || name === lastChatContact) return;
+    lastChatContact = name;
+    void saveClientName(name);
+  };
+  const scheduleSync = (() => {
+    let t = 0;
+    return () => {
+      if (t) window.clearTimeout(t);
+      t = window.setTimeout(() => {
+        t = 0;
+        syncChatCenterUi();
+      }, 250);
+    };
+  })();
+  const obs = new MutationObserver(() => scheduleSync());
+  if (document.body) {
+    obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) {
+        obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+      }
+    });
+  }
+  syncChatCenterUi();
+  window.setInterval(syncChatCenterUi, 2500);
+
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type !== 'TCE_PASTE_CHAT_CENTER_QUOTE') return false;
+    const text = typeof msg.text === 'string' ? msg.text : '';
+    const result = pasteQuoteIntoChatCenter(text, document);
+    if (result.contact) {
+      lastChatContact = result.contact;
+      void saveClientName(result.contact);
+    }
+    sendResponse(result);
+    return true;
+  });
+}
+
 const searchFormSync = new BookingMotorSearchFormSync();
 
 function syncAdvisorFromPage(): void {

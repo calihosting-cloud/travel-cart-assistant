@@ -7,10 +7,19 @@ dist/
 # Environment & secrets
 .env
 .env.*
+!.env.example
+!api/.env.example
+api/.env
 *.pem
 *.crx
 extension.zip
 dist.crx
+api/.venv/
+api/venv/
+api/__pycache__/
+api/**/__pycache__/
+api/*.egg-info/
+.pytest_cache/
 
 # OS & editor
 .DS_Store

@@ -1858,6 +1858,22 @@ body {
   background: #075985;
 }
 
+.btn-chat {
+  border: none;
+  background: #0f766e;
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-chat:hover {
+  background: #0d9488;
+}
+
 .btn-ghost {
   border: 1px solid var(--border);
   background: #fff;

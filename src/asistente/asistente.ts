@@ -2603,6 +2603,8 @@ function renderWhatsApp(): void {
       <textarea class="quote-preview" id="quote-preview" spellcheck="true"></textarea>
       <div class="quote-actions">
         <button type="button" class="btn-primary" data-action="copy-quote">Copiar WhatsApp</button>
+        <button type="button" class="btn-chat" data-action="send-chat-center"
+          title="Pega la cotización en la oportunidad abierta de Chat Center">Enviar a Chat Center</button>
         <button type="button" class="btn-pdf" data-action="download-pdf">Descargar PDF</button>
         <button type="button" class="btn-ghost" data-action="preview-quote">Regenerar desde carrito</button>
       </div>
@@ -2969,6 +2971,48 @@ async function copyQuoteToClipboard(): Promise<void> {
   }, 4000);
 }
 
+async function sendQuoteToChatCenter(): Promise<void> {
+  if (!ensureBriefingOrWarn()) return;
+  const preview = document.getElementById('quote-preview') as HTMLTextAreaElement | null;
+  const text =
+    preview && preview.value.trim()
+      ? preview.value
+      : await buildCurrentQuote();
+  if (preview && !preview.value.trim()) preview.value = text;
+
+  quoteCopyStatus = 'idle';
+  quoteStatusMessage = 'Enviando a Chat Center…';
+  selectTab('whatsapp');
+  renderWhatsApp();
+
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'TCE_SEND_TO_CHAT_CENTER',
+      text,
+    });
+    if (res?.contact && typeof res.contact === 'string') {
+      clientName = res.contact;
+      void saveClientName(clientName);
+      renderHeader();
+    }
+    if (res?.ok) await archiveCurrentCart('Enviar a Chat Center');
+    quoteCopyStatus = res?.ok ? 'ok' : 'err';
+    quoteStatusMessage = res?.ok
+      ? `✓ Pegado en Chat Center${res.contact ? ` · ${res.contact}` : ''}`
+      : res?.error || 'No se pudo pegar en Chat Center.';
+  } catch {
+    quoteCopyStatus = 'err';
+    quoteStatusMessage =
+      'No se pudo contactar Chat Center. Abre https://chatcrm.grupostravel.com/oportunidades';
+  }
+  renderWhatsApp();
+  window.setTimeout(() => {
+    quoteCopyStatus = 'idle';
+    quoteStatusMessage = '';
+    renderWhatsApp();
+  }, 5000);
+}
+
 async function copyCommissionToClipboard(): Promise<void> {
   const preview = document.getElementById('commission-preview') as HTMLTextAreaElement | null;
   const text = (preview?.value || '').trim() || (await buildCommissionMessage()) || '';
@@ -3302,6 +3346,10 @@ function bindWorkspaceEvents(): void {
     }
     if (action === 'copy-quote') {
       void copyQuoteToClipboard();
+      return;
+    }
+    if (action === 'send-chat-center') {
+      void sendQuoteToChatCenter();
       return;
     }
     if (action === 'copy-commission') {

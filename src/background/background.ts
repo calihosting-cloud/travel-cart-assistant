@@ -1,4 +1,9 @@
 import { APP_LOG_KEY, AppLogEntry } from '../shared/appLog';
+import {
+  CHAT_CENTER_CONVERSACIONES_URL,
+  ISABELA_BACKOFFICE_URL,
+} from '../shared/chatCenter';
+import { BM_NEW_BOOKING_URL } from '../shared/hotelTransferKit';
 import { ensureHistorySurvivedUpdate } from '../shared/quoteHistory';
 import { refreshOfficialTrm, TRM_SOURCES } from '../shared/trm';
 
@@ -44,12 +49,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === 'TCE_OPEN_BM_TRANSFER') {
-    const url = 'https://reservas.grupostravel.com/es/backoffice/book/new';
     void chrome.tabs
-      .create({ url })
+      .create({ url: BM_NEW_BOOKING_URL, active: true })
       .then((tab) => sendResponse({ ok: true, tabId: tab.id }))
       .catch((err) => {
         console.error('[TCE] tabs.create BM transfer failed', err);
+        sendResponse({ ok: false, error: String(err) });
+      });
+    return true;
+  }
+
+  if (message?.type === 'TCE_OPEN_ISABELA') {
+    void chrome.tabs
+      .create({ url: ISABELA_BACKOFFICE_URL, active: true })
+      .then((tab) => sendResponse({ ok: true, tabId: tab.id }))
+      .catch((err) => {
+        console.error('[TCE] tabs.create Isabela failed', err);
         sendResponse({ ok: false, error: String(err) });
       });
     return true;
@@ -94,6 +109,50 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void refreshOfficialTrm(Boolean(message.force))
       .then((trm) => sendResponse({ ok: !!trm, trm }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message?.type === 'TCE_SEND_TO_CHAT_CENTER') {
+    const text = typeof message.text === 'string' ? message.text : '';
+    void (async () => {
+      try {
+        const tabs = await chrome.tabs.query({
+          url: ['https://chatcrm.grupostravel.com/*'],
+        });
+        // Prefer Conversaciones (ventana de oportunidad) then Oportunidades board.
+        const tab =
+          tabs.find((t) => t.id != null && (t.url || '').includes('/conversaciones')) ||
+          tabs.find((t) => t.id != null && (t.url || '').includes('/oportunidades')) ||
+          tabs.find((t) => t.id != null);
+        if (!tab?.id) {
+          await chrome.tabs.create({ url: CHAT_CENTER_CONVERSACIONES_URL, active: true });
+          sendResponse({
+            ok: false,
+            opened: true,
+            error:
+              'Se abrió Chat Center. Abre una oportunidad y vuelve a pulsar Enviar a Chat Center.',
+          });
+          return;
+        }
+        await chrome.tabs.update(tab.id, { active: true });
+        const res = await chrome.tabs.sendMessage(tab.id, {
+          type: 'TCE_PASTE_CHAT_CENTER_QUOTE',
+          text,
+        });
+        sendResponse(
+          res && typeof res === 'object'
+            ? res
+            : { ok: false, error: 'Sin respuesta de Chat Center.' }
+        );
+      } catch (err) {
+        console.error('[TCE] TCE_SEND_TO_CHAT_CENTER failed', err);
+        sendResponse({
+          ok: false,
+          error:
+            'No se pudo pegar en Chat Center. Recarga esa pestaña (extensión activa) e inténtalo de nuevo.',
+        });
+      }
+    })();
     return true;
   }
 

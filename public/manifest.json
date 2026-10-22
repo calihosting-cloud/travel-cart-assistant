@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Travel Cart Assistant GT",
-  "version": "1.1.55",
-  "description": "Carrito GT — BookingMotor (hoteles, traslados, actividades, seguros, circuitos), Despegar, XNet, Avianca, Wingo, JetSMART, Arajet",
+  "version": "1.1.59",
+  "description": "Carrito GT — BookingMotor (hoteles, traslados, actividades, seguros, circuitos), Despegar, XNet, Avianca, Wingo, JetSMART, Arajet, Chat Center",
   "permissions": [
     "storage",
     "activeTab",
@@ -11,6 +11,7 @@
     "tabs"
   ],
   "host_permissions": [
+    "https://chatcrm.grupostravel.com/*",
     "https://www.dolar-colombia.com/*",
     "https://dolar.wilkinsonpc.com.co/*",
     "https://staticmap.openstreetmap.de/*",
@@ -33,6 +34,7 @@
     {
       "matches": [
         "https://reservas.grupostravel.com/*",
+        "https://chatcrm.grupostravel.com/*",
         "https://www.despegar.com.co/*",
         "https://*.despegar.com.co/*",
         "https://scape.xnet.travel/*",
