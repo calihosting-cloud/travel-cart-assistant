@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Carrito API Admin{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a222c;
+      --text: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #3d8bfd;
+      --danger: #e35d6a;
+      --ok: #3dd68c;
+      --border: #2a3542;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #1a2a3d, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { color: var(--accent); }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.25rem; margin: 0; font-weight: 600; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1rem;
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 0.65rem 0.75rem; border-radius: 8px;
+      border: 1px solid var(--border); background: #121820; color: var(--text);
+      margin-bottom: 0.9rem;
+    }
+    button, .btn {
+      appearance: none; border: 0; border-radius: 8px; padding: 0.55rem 0.95rem;
+      font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block;
+      font-size: 0.9rem;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-muted { background: #2a3542; color: var(--text); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-ok { background: var(--ok); color: #062016; }
+    .flash {
+      padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem;
+      background: #1e2f22; border: 1px solid #2f5a40; color: #b8f0d0;
+    }
+    .flash-error { background: #2a181c; border-color: #5a2f38; color: #f0c0c6; }
+    .flash-warn { background: #2a2418; border-color: #5a4a2f; color: #f0e0b0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge {
+      display: inline-block; padding: 0.15rem 0.45rem; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 600;
+    }
+    .badge-ok { background: #1a3d2c; color: var(--ok); }
+    .badge-off { background: #3d1a22; color: #f0a0a8; }
+    .token-once {
+      font-family: ui-monospace, Consolas, monospace;
+      word-break: break-all; background: #0c1016; padding: 0.85rem;
+      border-radius: 8px; border: 1px dashed #3d8bfd; margin: 0.5rem 0 0;
+    }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    .row-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .login-card { max-width: 400px; margin: 4rem auto; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    {% block body %}{% endblock %}
+  </div>
+</body>
+</html>

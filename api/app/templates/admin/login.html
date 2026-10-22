@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% block title %}Login — Carrito API Admin{% endblock %}
+{% block body %}
+  <div class="login-card card">
+    <h1 style="margin-top:0">Carrito API</h1>
+    <p class="muted">Panel de tokens. Solo operadores autorizados.</p>
+    {% if error %}
+    <div class="flash flash-error">{{ error }}</div>
+    {% endif %}
+    {% if not admin_enabled %}
+    <div class="flash flash-warn">
+      Admin no configurado. Define <code>CAR_ADMIN_USER</code> y <code>CAR_ADMIN_PASSWORD</code> en el <code>.env</code> del servidor y reinicia el servicio.
+    </div>
+    {% else %}
+    <form method="post" action="{{ rp('/admin/login') }}">
+      <label for="username">Usuario</label>
+      <input id="username" name="username" type="text" autocomplete="username" required autofocus />
+      <label for="password">Contraseña</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button type="submit" class="btn-primary">Entrar</button>
+    </form>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -203,12 +203,16 @@ import { openQuotePdfPrint } from './QuotePdf';
 import { openAsistentePanel } from '../shared/openAsistente';
 import {
   carApiConfigured,
-  type CarContacto,
   type CarCotizacion,
-  createContacto,
+  type ContactSearchHit,
+  ensureAsesor,
+  ensureContacto,
+  formatAsesorLabel,
   getContacto,
   listCotizaciones,
-  searchContactos,
+  loadCrmUserEmail,
+  loadCrmUserId,
+  searchContactosMerged,
   upsertCotizacion,
 } from '../shared/carApi';
 import {
@@ -361,11 +365,13 @@ export class CartSidebar {
   /** Blue Asistente tab vertical position (% of viewport height). */
   private tabTopPct = 50;
   /** Contact search (API car_*). */
-  private contactHits: CarContacto[] = [];
+  private contactHits: ContactSearchHit[] = [];
   private contactSearchOpen = false;
   private contactSearchTimer: number | null = null;
   private selectedContactId: number | null = null;
   private selectedContactPhone = '';
+  private selectedCrmContactId: string | null = null;
+  private selectedAsesorId: number | null = null;
   /** Cotizaciones en servidor (car_cotizacion). */
   private remoteQuotes: CarCotizacion[] = [];
   private remoteQuotesLoaded = false;
@@ -1143,6 +1149,7 @@ export class CartSidebar {
     void appendAppLog('info', `Historial: ${reason} ${formatQuoteRef(quoteNumber)}`);
     void (async () => {
       await this.ensureContactOnServer();
+      await this.ensureAsesorOnServer();
       await this.syncQuoteToCarApi(quoteNumber, entry, reason);
     })();
   }
@@ -1156,6 +1163,7 @@ export class CartSidebar {
     const res = await upsertCotizacion({
       numero_car: quoteNumber,
       numero_car_ref: formatQuoteRef(quoteNumber),
+      asesor_id: this.selectedAsesorId || undefined,
       asesor_nombre: this.advisorName || undefined,
       agencia_nombre: this.agencyName || entry.agencyName || undefined,
       contacto_nombre: this.clientName || entry.clientName || undefined,
@@ -1218,7 +1226,7 @@ export class CartSidebar {
       this.renderContactDropdownOnly();
       return;
     }
-    const res = await searchContactos(term, 12);
+    const res = await searchContactosMerged(term, 12);
     if (!res.ok) {
       this.contactHits = [];
       this.contactSearchOpen = false;
@@ -1239,38 +1247,50 @@ export class CartSidebar {
   private contactDropdownHtml(): string {
     if (!this.contactSearchOpen || this.contactHits.length === 0) return '';
     return this.contactHits
-      .map((c) => {
+      .map((c, idx) => {
         const phone = this.escape(c.telefono || c.telefono_norm || '—');
+        const src = c.source === 'crm' ? 'CRM' : 'Carrito';
+        const det =
+          c.car_contacto_id != null
+            ? `<button type="button" class="tce-contact-hit-det" data-action="contact-detail" data-car-id="${c.car_contacto_id}">Detalles</button>`
+            : '';
         return `<div class="tce-contact-hit">
-          <button type="button" class="tce-contact-hit-main" data-action="pick-contact" data-id="${c.id}">
-            <span class="tce-contact-hit-name">${this.escape(c.nombre)}</span>
+          <button type="button" class="tce-contact-hit-main" data-action="pick-contact" data-idx="${idx}">
+            <span class="tce-contact-hit-name">${this.escape(c.nombre)} <span class="tce-contact-src">${src}</span></span>
             <span class="tce-contact-hit-phone">${phone}</span>
           </button>
-          <button type="button" class="tce-contact-hit-det" data-action="contact-detail" data-id="${c.id}">Detalles</button>
+          ${det}
         </div>`;
       })
       .join('');
   }
 
-  private async pickContact(id: number): Promise<void> {
-    const hit = this.contactHits.find((c) => c.id === id);
-    let c = hit;
-    if (!c) {
-      const res = await getContacto(id);
-      if (!res.ok) return;
-      c = res.data;
+  private async pickContactHit(idx: number): Promise<void> {
+    const hit = this.contactHits[idx];
+    if (!hit) return;
+    if (!(await carApiConfigured())) return;
+    const ensured = await ensureContacto({
+      nombre: hit.nombre,
+      telefono: hit.telefono || hit.telefono_norm || this.selectedContactPhone || undefined,
+      crm_contact_id: hit.crm_contact_id || undefined,
+    });
+    if (!ensured.ok) {
+      window.alert(ensured.error || 'No se pudo guardar el contacto');
+      return;
     }
-    this.selectedContactId = c.id;
-    this.selectedContactPhone = c.telefono || c.telefono_norm || '';
-    this.clientName = c.nombre;
+    this.selectedContactId = ensured.data.id;
+    this.selectedCrmContactId = ensured.data.crm_contact_id || hit.crm_contact_id || null;
+    this.selectedContactPhone =
+      ensured.data.telefono || ensured.data.telefono_norm || hit.telefono || '';
+    this.clientName = ensured.data.nombre || hit.nombre;
     void saveClientName(this.clientName);
     this.contactSearchOpen = false;
     this.contactHits = [];
     this.render();
   }
 
-  private async showContactDetail(id: number): Promise<void> {
-    const res = await getContacto(id);
+  private async showContactDetail(carId: number): Promise<void> {
+    const res = await getContacto(carId);
     if (!res.ok) {
       window.alert(res.error || 'No se pudo cargar el contacto');
       return;
@@ -1281,8 +1301,9 @@ export class CartSidebar {
         c.nombre,
         c.telefono ? `Tel: ${c.telefono}` : null,
         c.email ? `Email: ${c.email}` : null,
+        c.crm_contact_id ? `CRM id: ${c.crm_contact_id}` : null,
         c.notas ? `Notas: ${c.notas}` : null,
-        `Id: ${c.id}`,
+        `Carrito id: ${c.id}`,
       ]
         .filter(Boolean)
         .join('\n')
@@ -1292,26 +1313,34 @@ export class CartSidebar {
   private async ensureContactOnServer(): Promise<void> {
     const name = this.clientName.trim();
     if (!name || !(await carApiConfigured())) return;
-    if (this.selectedContactId) return;
-    const found = await searchContactos(name, 5);
-    if (found.ok) {
-      const exact = found.data.items.find(
-        (c) => c.nombre.trim().toLowerCase() === name.toLowerCase()
-      );
-      if (exact) {
-        this.selectedContactId = exact.id;
-        this.selectedContactPhone = exact.telefono || exact.telefono_norm || '';
-        return;
-      }
-    }
-    const created = await createContacto({
+    const ensured = await ensureContacto({
       nombre: name,
       telefono: this.selectedContactPhone || undefined,
+      crm_contact_id: this.selectedCrmContactId || undefined,
     });
-    if (created.ok) {
-      this.selectedContactId = created.data.id;
+    if (ensured.ok) {
+      this.selectedContactId = ensured.data.id;
       this.selectedContactPhone =
-        created.data.telefono || created.data.telefono_norm || this.selectedContactPhone;
+        ensured.data.telefono || ensured.data.telefono_norm || this.selectedContactPhone;
+      if (ensured.data.crm_contact_id) {
+        this.selectedCrmContactId = ensured.data.crm_contact_id;
+      }
+    }
+  }
+
+  private async ensureAsesorOnServer(): Promise<void> {
+    const name = (this.advisorName || '').trim();
+    if (!name || !(await carApiConfigured())) return;
+    const crmId = await loadCrmUserId();
+    const email = await loadCrmUserEmail();
+    const res = await ensureAsesor({
+      nombre: name,
+      email: email || undefined,
+      crm_user_id: crmId || undefined,
+    });
+    if (res.ok) {
+      this.selectedAsesorId = res.data.id;
+      void appendAppLog('info', `Asesor API: ${formatAsesorLabel(res.data)}`);
     }
   }
 
@@ -2562,8 +2591,9 @@ export class CartSidebar {
         transition: background 0.2s, right 0.25s ease;
       }
       .tce-tab--open { right: 340px; }
-      .tce-tab--open.tce-tab--wide { right: 700px; }
-      .tce-tab--open.tce-tab--compare { right: 900px; }
+      .tce-tab--open.tce-tab--wide { right: min(820px, 96vw); }
+      .tce-tab--open.tce-tab--wide.tce-tab--roomy { right: min(900px, 96vw); }
+      .tce-tab--open.tce-tab--compare { right: min(980px, 98vw); }
 
       .tce-badge {
         display: inline-block;
@@ -2593,19 +2623,20 @@ export class CartSidebar {
         transition: transform 0.25s ease, width 0.25s ease;
       }
       .tce-panel--open { transform: translateX(0); }
-      .tce-panel--wide { width: 700px; }
-      .tce-panel--compare { width: 900px; }
+      .tce-panel--wide { width: min(820px, 96vw); }
+      .tce-panel--wide.tce-panel--roomy { width: min(900px, 96vw); }
+      .tce-panel--compare { width: min(980px, 98vw); }
 
       .tce-header {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         flex-wrap: wrap;
-        padding: 6px 10px;
+        padding: 10px 14px;
         background: #1e40af;
         color: #fff;
         flex-shrink: 0;
-        gap: 6px 8px;
+        gap: 10px 12px;
       }
       .tce-header-title {
         display: flex;
@@ -2615,6 +2646,7 @@ export class CartSidebar {
         min-width: 0;
         flex: 0 1 auto;
         overflow: hidden;
+        padding-top: 4px;
       }
       .tce-header h2 {
         margin: 0;
@@ -2632,18 +2664,20 @@ export class CartSidebar {
       }
       .tce-header-client {
         display: flex;
-        align-items: center;
-        gap: 5px;
-        flex: 1 1 120px;
-        min-width: 90px;
-        max-width: 260px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        flex: 1 1 320px;
+        min-width: 220px;
+        max-width: 480px;
       }
       .tce-header-agency {
         display: flex;
-        align-items: center;
-        gap: 5px;
-        flex: 1 1 140px;
-        min-width: 100px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        flex: 1 1 180px;
+        min-width: 140px;
         max-width: 280px;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-client {
@@ -2671,6 +2705,24 @@ export class CartSidebar {
         opacity: 0.9;
         flex-shrink: 0;
       }
+      .tce-contact-wrap {
+        position: relative;
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: stretch;
+      }
+      .tce-contact-wrap .tce-client-input {
+        flex: 1 1 140px;
+        min-width: 120px;
+      }
+      .tce-contact-wrap .tce-contact-phone-input {
+        flex: 0 1 140px;
+        min-width: 110px;
+        width: auto;
+      }
       .tce-client-input,
       .tce-agency-input {
         flex: 1;
@@ -2688,29 +2740,36 @@ export class CartSidebar {
         border-color: #facc15;
         box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35);
       }
-      .tce-contact-wrap {
-        position: relative;
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
+      .tce-contact-phone-input {
+        font-size: 12px;
+        padding: 4px 7px;
+        border-radius: 5px;
+        border: 1px solid rgba(255,255,255,0.35);
+        background: #fff;
+        color: #0f172a;
+        font-family: inherit;
       }
-      .tce-contact-wrap .tce-client-input { width: 100%; }
-      .tce-contact-phone {
-        font-size: 10px;
-        opacity: 0.9;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+      .tce-contact-phone-input:focus {
+        outline: none;
+        border-color: #facc15;
+        box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35);
+      }
+      .tce-contact-src {
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #be185d;
+        margin-left: 4px;
       }
       .tce-contact-dd {
         position: absolute;
         left: 0;
         right: 0;
-        top: calc(100% + 2px);
+        top: calc(100% + 4px);
         z-index: 50;
-        max-height: 180px;
+        min-width: 260px;
+        max-height: 220px;
         overflow: auto;
         background: #fff;
         border: 1px solid #cbd5e1;
@@ -2794,6 +2853,8 @@ export class CartSidebar {
         align-items: center;
         gap: 5px;
         flex-shrink: 0;
+        padding-top: 2px;
+        margin-left: auto;
       }
       .tce-hotel-options-toggle {
         display: inline-flex;
@@ -5964,8 +6025,9 @@ export class CartSidebar {
     }
 
     const compareWide = this.hotelsAsOptions && this.hotelOptionGroups.length > 0;
-    const wideClass = ` tce-panel--wide${compareWide ? ' tce-panel--compare' : ''}`;
-    const tabWideClass = ` tce-tab--wide${compareWide ? ' tce-tab--compare' : ''}`;
+    const roomyEmpty = this.items.length === 0;
+    const wideClass = ` tce-panel--wide${roomyEmpty ? ' tce-panel--roomy' : ''}${compareWide ? ' tce-panel--compare' : ''}`;
+    const tabWideClass = ` tce-tab--wide${compareWide ? ' tce-tab--compare' : ''}${roomyEmpty ? ' tce-tab--roomy' : ''}`;
     const trmValue = trmInputValue(this.trmRate);
     const effTrm = this.getEffectiveTrm();
     const trmEffHint =
@@ -5999,15 +6061,19 @@ export class CartSidebar {
                 class="tce-client-input"
                 type="text"
                 maxlength="120"
-                placeholder="Nombre o teléfono…"
+                placeholder="Nombre…"
                 autocomplete="off"
                 value="${this.escape(this.clientName)}"
               />
-              ${
-                this.selectedContactPhone
-                  ? `<span class="tce-contact-phone" title="Teléfono">${this.escape(this.selectedContactPhone)}</span>`
-                  : ''
-              }
+              <input
+                id="tce-contact-phone"
+                class="tce-contact-phone-input"
+                type="tel"
+                maxlength="40"
+                placeholder="Teléfono…"
+                autocomplete="off"
+                value="${this.escape(this.selectedContactPhone)}"
+              />
               <div class="tce-contact-dd">${this.contactDropdownHtml()}</div>
             </div>
           </div>
@@ -7479,6 +7545,7 @@ export class CartSidebar {
         t?.classList?.contains('tce-tier-mayor-input') ||
         t?.classList?.contains('tce-occ-input') ||
         t?.classList?.contains('tce-client-input') ||
+        t?.classList?.contains('tce-contact-phone-input') ||
         t?.classList?.contains('tce-agency-input') ||
         t?.classList?.contains('tce-initial-deposit')
       ) {
@@ -7506,6 +7573,7 @@ export class CartSidebar {
         t?.classList?.contains('tce-tier-mayor-input') ||
         t?.classList?.contains('tce-occ-input') ||
         t?.classList?.contains('tce-client-input') ||
+        t?.classList?.contains('tce-contact-phone-input') ||
         t?.classList?.contains('tce-agency-input') ||
         t?.classList?.contains('tce-initial-deposit')
       ) {
@@ -7673,12 +7741,12 @@ export class CartSidebar {
         const n = Number(target.dataset.quoteNumber);
         if (n > 0) void this.restoreHistoryEntry(n);
       } else if (action === 'pick-contact') {
-        const id = Number(target.dataset.id);
-        if (id > 0) void this.pickContact(id);
+        const idx = Number(target.dataset.idx);
+        if (Number.isFinite(idx) && idx >= 0) void this.pickContactHit(idx);
       } else if (action === 'contact-detail') {
         e.preventDefault();
         e.stopPropagation();
-        const id = Number(target.dataset.id);
+        const id = Number(target.dataset.carId);
         if (id > 0) void this.showContactDetail(id);
       } else if (action === 'refresh-remote-quotes') {
         void this.refreshRemoteQuotes();
@@ -7842,9 +7910,19 @@ export class CartSidebar {
       if (target.classList.contains('tce-client-input')) {
         this.clientName = (target as HTMLInputElement).value;
         this.selectedContactId = null;
-        this.selectedContactPhone = '';
+        this.selectedCrmContactId = null;
         void saveClientName(this.clientName);
         this.scheduleContactSearch(this.clientName);
+        return;
+      }
+
+      if (target.classList.contains('tce-contact-phone-input')) {
+        this.selectedContactPhone = (target as HTMLInputElement).value;
+        this.selectedContactId = null;
+        const q = this.selectedContactPhone.trim().length >= 2
+          ? this.selectedContactPhone
+          : this.clientName;
+        this.scheduleContactSearch(q);
         return;
       }
 

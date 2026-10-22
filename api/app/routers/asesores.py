@@ -1,4 +1,4 @@
-"""Asesores — listado para vincular cotizaciones."""
+"""Asesores — listado y upsert por crm_user_id / email (no solo por nombre)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import CarAsesor
-from ..schemas import AsesorCreate, AsesorOut
+from ..schemas import AsesorCreate, AsesorEnsureIn, AsesorOut
 from ..security import require_api_token
 
 router = APIRouter(prefix="/v1/asesores", tags=["asesores"])
@@ -26,6 +26,54 @@ def list_asesores(
     if activos:
         query = query.filter(CarAsesor.activo.is_(True))
     return query.order_by(func.lower(CarAsesor.nombre)).all()
+
+
+@router.post("/ensure", response_model=AsesorOut)
+def ensure_asesor(
+    body: AsesorEnsureIn,
+    _token: str = Depends(require_api_token),
+    db: Session = Depends(get_db),
+) -> CarAsesor:
+    """Upsert by crm_user_id first, then email; name is only a label."""
+    now = datetime.now(timezone.utc)
+    nombre = body.nombre.strip()
+    email = (body.email or "").strip() or None
+    crm_id = (body.crm_user_id or "").strip() or None
+    row: CarAsesor | None = None
+
+    if crm_id:
+        row = db.query(CarAsesor).filter(CarAsesor.crm_user_id == crm_id).first()
+    if row is None and email:
+        row = (
+            db.query(CarAsesor)
+            .filter(func.lower(CarAsesor.email) == email.lower())
+            .first()
+        )
+
+    if row:
+        row.nombre = nombre
+        if email:
+            row.email = email
+        if crm_id:
+            row.crm_user_id = crm_id
+        row.activo = body.activo
+        row.updated_at = now
+        db.commit()
+        db.refresh(row)
+        return row
+
+    row = CarAsesor(
+        nombre=nombre,
+        email=email,
+        crm_user_id=crm_id,
+        activo=body.activo,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 @router.post("", response_model=AsesorOut, status_code=status.HTTP_201_CREATED)

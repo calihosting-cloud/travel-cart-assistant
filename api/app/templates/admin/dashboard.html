@@ -1,0 +1,87 @@
+{% extends "admin/base.html" %}
+{% block title %}Tokens — Carrito API Admin{% endblock %}
+{% block body %}
+  <header>
+    <h1>Tokens de API</h1>
+    <div class="row-actions">
+      <span class="muted">{{ admin_user }}</span>
+      <form method="post" action="{{ rp('/admin/logout') }}" style="margin:0">
+        <button type="submit" class="btn-muted">Salir</button>
+      </form>
+    </div>
+  </header>
+
+  {% if flash %}
+  <div class="flash {% if flash_error %}flash-error{% endif %}">{{ flash }}</div>
+  {% endif %}
+
+  {% if new_token %}
+  <div class="card">
+    <strong>Token creado — cópialo ahora</strong>
+    <p class="muted" style="margin:0.35rem 0 0">No se volverá a mostrar. Guárdalo en la extensión o en un gestor de secretos.</p>
+    <p class="token-once">{{ new_token }}</p>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2 style="margin:0 0 0.75rem; font-size:1rem">Crear token</h2>
+    <form method="post" action="{{ rp('/admin/tokens') }}">
+      <label for="name">Nombre (ej. extensión Laura, script CRM)</label>
+      <input id="name" name="name" type="text" required maxlength="120" placeholder="extensión — agente X" />
+      <label for="scopes">Scopes (coma: read, write)</label>
+      <input id="scopes" name="scopes" type="text" value="read,write" />
+      <button type="submit" class="btn-primary">Generar token</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin:0 0 0.75rem; font-size:1rem">Tokens en base de datos</h2>
+    {% if not tokens %}
+    <p class="muted">Aún no hay tokens en <code>car_api_token</code>. Los de <code>CAR_API_TOKENS</code> en el .env siguen válidos pero no aparecen aquí.</p>
+    {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Estado</th>
+          <th>Scopes</th>
+          <th>Creado</th>
+          <th>Último uso</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tokens %}
+        <tr>
+          <td>{{ t.name }}</td>
+          <td>
+            {% if t.activo %}
+            <span class="badge badge-ok">activo</span>
+            {% else %}
+            <span class="badge badge-off">revocado</span>
+            {% endif %}
+          </td>
+          <td class="muted">{{ t.scopes | join(", ") if t.scopes else "—" }}</td>
+          <td class="muted">{{ t.created_at.strftime("%Y-%m-%d %H:%M") if t.created_at else "—" }}</td>
+          <td class="muted">{{ t.last_used_at.strftime("%Y-%m-%d %H:%M") if t.last_used_at else "—" }}</td>
+          <td>
+            <div class="row-actions">
+              {% if t.activo %}
+              <form method="post" action="{{ rp('/admin/tokens/' ~ t.id ~ '/revoke') }}" style="margin:0"
+                    onsubmit="return confirm('¿Revocar este token? Dejará de funcionar de inmediato.');">
+                <button type="submit" class="btn-danger">Revocar</button>
+              </form>
+              {% else %}
+              <form method="post" action="{{ rp('/admin/tokens/' ~ t.id ~ '/activate') }}" style="margin:0">
+                <button type="submit" class="btn-ok">Reactivar</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+{% endblock %}

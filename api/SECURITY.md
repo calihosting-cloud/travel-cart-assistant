@@ -10,18 +10,20 @@ La API expone datos de cotizaciones/contactos. El atacante típico es:
 
 Mitigamos (1)(2)(3) con capas; **no hay seguridad absoluta**.
 
-## Controles implementados (v0.1.0)
+## Controles implementados (v0.2.0)
 
 | Control | Cómo |
 |---------|------|
-| Autenticación | `Authorization: Bearer <token>` o `X-API-Token` |
-| Comparación de tokens | `hmac.compare_digest` (tiempo constante) |
-| HTTPS | `CAR_REQUIRE_HTTPS=true` (salvo localhost) |
+| Autenticación API | `Authorization: Bearer <token>` o `X-API-Token` |
+| Origen de tokens | `CAR_API_TOKENS` (env) **o** hash SHA-256 activo en `car_api_token` |
+| Comparación env | `hmac.compare_digest` (tiempo constante) |
+| Panel admin | `/admin` — cookie de sesión firmada; `CAR_ADMIN_USER` / `CAR_ADMIN_PASSWORD` |
+| HTTPS | `CAR_REQUIRE_HTTPS=true` (salvo localhost); cookie admin `Secure` |
 | Rate limit | SlowAPI por IP (`CAR_RATE_LIMIT_PER_MINUTE`) |
 | CORS | Solo orígenes listados en `CAR_CORS_ORIGINS` |
 | IP allowlist | Opcional `CAR_IP_ALLOWLIST` |
 | SQL | ORM / parámetros (sin concatenar SQL) |
-| Secretos | Solo en `api/.env` (gitignored) |
+| Secretos | Solo en `api/.env` (gitignored); tokens de BD nunca en claro |
 
 ## Generar un token fuerte
 
@@ -39,9 +41,13 @@ Ponlo en `CAR_API_TOKENS` (varios separados por coma). **Rota** el token si se f
 4. No reutilizar la contraseña de `root` SSH ni del usuario admin del CRM para la API.
 5. Preferir clave SSH; **rotar** cualquier password que haya estado en un `.env` en texto plano en el repo local.
 
-## Tabla `car_api_token`
+## Tabla `car_api_token` + panel `/admin`
 
-La migración crea `car_api_token` para guardar **hashes** de tokens en el futuro. En v0.1.0 los tokens válidos salen de `CAR_API_TOKENS` (env) para simplificar el primer despliegue.
+Desde v0.2.0 el panel web crea tokens: guarda solo el **hash**; el valor en claro se muestra **una vez**. Revocar pone `activo=false` (efecto inmediato, sin reiniciar).
+
+Los tokens en `CAR_API_TOKENS` siguen válidos (bootstrap / extensión ya configurada).
+
+Credenciales del panel: `CAR_ADMIN_USER`, `CAR_ADMIN_PASSWORD`, `CAR_ADMIN_SESSION_SECRET` en el `.env` del servidor.
 
 ## Reportar problemas
 

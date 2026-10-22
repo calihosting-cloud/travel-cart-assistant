@@ -12,6 +12,9 @@ dist/
 api/.env
 api/.deploy_secrets*.json
 api/.deployed_api_token.txt
+api/.deployed_admin.txt
+docs/informeapi.md
+
 *.pem
 *.crx
 extension.zip

@@ -3,6 +3,7 @@ Carrito GT API — FastAPI (Python 3.10).
 
 No modifica la extensión Chrome. Solo expone endpoints seguros sobre tablas car_*.
 Docs interactivas: GET /docs  (Swagger) y GET /redoc
+Admin tokens: GET /admin
 """
 
 from __future__ import annotations
@@ -17,11 +18,12 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
 from .config import get_settings
 from .db import get_db
-from .routers import agencias, asesores, contactos, cotizaciones
+from .routers import admin, agencias, asesores, contactos, cotizaciones
 from .schemas import HealthOut
 from .security import require_api_token
 
@@ -38,7 +40,8 @@ app = FastAPI(
     description=(
         "API del Carrito GT para Chat Center. "
         "Autenticación: header `Authorization: Bearer <token>` o `X-API-Token`. "
-        "Tablas con prefijo `car_`. Ver `api/README.md` y `api/CHANGELOG.md`."
+        "Tablas con prefijo `car_`. Panel admin: `/admin`. "
+        "Ver `api/README.md` y `api/CHANGELOG.md`."
     ),
     docs_url="/docs",
     redoc_url="/redoc",
@@ -46,6 +49,16 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Session cookie for /admin (must be before routes that use request.session)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret(),
+    session_cookie="car_admin_session",
+    max_age=max(1, settings.car_admin_session_hours) * 3600,
+    same_site="lax",
+    https_only=bool(settings.car_require_https),
+)
 
 origins = settings.cors_origin_list()
 if origins:
@@ -57,6 +70,7 @@ if origins:
         allow_headers=["Authorization", "X-API-Token", "Content-Type"],
     )
 
+app.include_router(admin.router)
 app.include_router(contactos.router)
 app.include_router(asesores.router)
 app.include_router(agencias.router)
@@ -88,7 +102,6 @@ def me(request: Request, _token: str = Depends(require_api_token)) -> JSONRespon
 def run() -> None:
     import uvicorn
 
-    # Load .env from api/ directory when started as module
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
         from dotenv import load_dotenv

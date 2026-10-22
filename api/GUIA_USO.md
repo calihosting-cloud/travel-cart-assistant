@@ -1,6 +1,6 @@
 # Guía de uso — Carrito GT API
 
-**Para compartir con el equipo.** Versión API **0.1.0** · Schema SQL **0.1.0** · Python **3.10**
+**Para compartir con el equipo.** Versión API **0.2.1** · Schema SQL **0.1.0** · Python **3.10**
 
 Esta guía explica cómo autenticarse, crear tokens, llamar los endpoints y qué hacer si algo falla.  
 No hace falta conocer el código de la extensión Chrome: la API es un servicio aparte.
@@ -12,6 +12,7 @@ No hace falta conocer el código de la extensión Chrome: la API es un servicio 
 | [DEPLOY.md](./DEPLOY.md) | Quien instala en el servidor |
 | [SECURITY.md](./SECURITY.md) | Política de seguridad |
 | [CHANGELOG.md](./CHANGELOG.md) | Historial de versiones / rollback |
+| **Panel `/admin`** | Crear / revocar tokens con usuario y contraseña |
 | Swagger `/docs` | Pruebas interactivas en el navegador |
 | ReDoc `/redoc` | Referencia legible de esquemas |
 
@@ -37,42 +38,30 @@ No hace falta conocer el código de la extensión Chrome: la API es un servicio 
 
 ## 2. Cómo crear y usar tokens
 
-### 2.1 Generar un token fuerte
+### 2.0 Panel visual (recomendado)
 
-En cualquier máquina con Python 3.10+:
+1. Abre `https://chatcrm.grupostravel.com/car-api/admin` (o `https://HOST/car-api/admin`).
+2. Entra con el usuario/contraseña de admin del servidor (`CAR_ADMIN_*` en el `.env`).
+3. **Crear token** → cópialo **una sola vez** → pégalo en la extensión (popup → Carrito API).
+4. **Revocar** invalida el token al instante (sin reiniciar el servicio).
+
+### 2.1 Generar a mano (alternativa)
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+# o: python3 scripts/gen_token.py
 ```
 
-O, dentro de la carpeta `api/` del repo:
+### 2.2 Registrar en el `.env` (bootstrap)
 
-```bash
-python3 scripts/gen_token.py
-```
-
-Ejemplo de salida (inventada):
-
-```text
-xK9mR2pL... (cadena larga aleatoria)
-```
-
-**Reglas:**
-
-- Un token por persona o por integración (extensión, script, partner).
-- Nunca lo pongas en Git, Slack público, tickets o capturas de pantalla.
-- Si se filtra: **bórralo del `.env`, reinicia el servicio y genera otro**.
-
-### 2.2 Registrar el token en el servidor
-
-En el archivo `api/.env` del servidor (no existe en git; se copia desde `.env.example`):
+Sigue válido para tokens “fijos” (p. ej. el primero del despliegue):
 
 ```env
-CAR_API_TOKENS=token_de_persona_a,token_de_persona_b,token_extension
+CAR_API_TOKENS=token_de_persona_a,token_extension
 ```
 
-- Varios tokens: separados por **coma**, sin espacios de más (o con espacios; se recortan).
-- Tras editar `.env`, **reinicia** el servicio (`systemctl restart carrito-gt-api` o el proceso que usen).
+Tras editar `.env`, reinicia: `systemctl restart carrito-gt-api`.  
+Preferible usar el panel `/admin` para tokens nuevos.
 
 ### 2.3 Enviar el token en cada petición
 
@@ -151,6 +140,25 @@ curl -s -H "Authorization: Bearer TOKEN" https://HOST/v1/me
 ---
 
 ### 4.2 Contactos (`/v1/contactos`)
+
+**Búsqueda unificada (CRM WhatsApp + carrito):**
+
+```bash
+curl -s -H "Authorization: Bearer TOKEN" \
+  "https://HOST/v1/contactos/search?q=sara&limit=20"
+```
+
+Cada ítem incluye `source` (`crm` | `carrito`), `nombre`, `telefono`, `crm_contact_id`, `car_contacto_id`.
+
+**Asegurar contacto en carrito** (al elegir de la lista):
+
+```bash
+curl -s -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" \
+  -d '{"nombre":"Sara","telefono":"573157781866","crm_contact_id":"..."}' \
+  https://HOST/v1/contactos/ensure
+```
+
+#### Listado solo `car_contacto`
 
 #### Buscar / listar
 
@@ -361,7 +369,10 @@ Ver plantilla completa: [`.env.example`](./.env.example).
 | Variable | Uso |
 |----------|-----|
 | `CAR_DB_*` / `CAR_DATABASE_URL` | Conexión Postgres |
-| `CAR_API_TOKENS` | Tokens válidos (coma-separados) |
+| `CAR_API_TOKENS` | Tokens válidos (coma-separados; bootstrap) |
+| `CAR_ADMIN_USER` / `CAR_ADMIN_PASSWORD` | Login del panel `/admin` |
+| `CAR_ADMIN_SESSION_SECRET` | Firma de la cookie de sesión |
+| `CAR_ROOT_PATH` | Prefijo nginx (`/car-api` en Chat Center) |
 | `CAR_REQUIRE_HTTPS` | `true` en producción |
 | `CAR_CORS_ORIGINS` | Orígenes permitidos (p. ej. extensión) |
 | `CAR_IP_ALLOWLIST` | Opcional |

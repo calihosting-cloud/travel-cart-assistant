@@ -1,7 +1,7 @@
 # Estado de despliegue — Carrito GT API
 
 **Última actualización:** 2026-10-21  
-**Versión API:** 0.1.0 · **Schema:** 0.1.0
+**Versión API:** 0.2.1 · **Schema:** 0.1.0
 
 ## Producción (Chat Center)
 
@@ -45,12 +45,18 @@ https://chatcrm.grupostravel.com/car-api/docs
 
 Script de parche: `api/scripts/patch_crm_nginx_car_api.py`.
 
+### Panel admin de tokens
+
+- URL: `https://chatcrm.grupostravel.com/car-api/admin`
+- Credenciales locales (gitignored): `api/.deployed_admin.txt` tras `scripts/deploy_admin_update.py`
+- Crear / revocar tokens en UI; Bearer de datos sigue siendo el token generado (no la contraseña admin).
+
 ### Extensión (v1.1.60+)
 
 1. Compilar / recargar extensión.
 2. Popup → **Config → Carrito API**.
 3. Base URL: `https://chatcrm.grupostravel.com/car-api`
-4. Pegar token desde `api/.deployed_api_token.txt` → **Guardar** → **Probar conexión**.
+4. Pegar un token desde `/admin` (o `api/.deployed_api_token.txt`) → **Guardar** → **Probar conexión**.
 5. En el carrito: Contacto busca en BD; Historial → **Servidor**; al copiar WhatsApp/PDF se guarda `car_cotizacion`.
 
 ## Rollback

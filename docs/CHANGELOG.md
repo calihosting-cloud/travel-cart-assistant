@@ -12,6 +12,28 @@ Formato por entrada:
 
 ---
 
+## 2026-10-22 — Búsqueda Contacto = conversaciones Chat Center (API 0.2.2)
+
+- **Fixed**: la lista del carrito busca en `crm.contacts` (contactos de Conversaciones), no en la agenda corta de Evolution.
+
+## 2026-10-21 — Carrito más amplio (vacío) + Contacto/Teléfono en fila (v1.1.62)
+
+- **Changed**: panel wide ~820px (900px si el carrito está vacío); Contacto y Teléfono en la misma fila con más aire en el header.
+
+## 2026-10-21 — Búsqueda contactos CRM + teléfono (API 0.2.1)
+
+- **Changed**: Contacto del carrito busca en WhatsApp `Contact` del Chat Center **y** en `car_contacto`; al elegir se hace upsert en carrito.
+- **Added**: campo **Teléfono** editable junto a Contacto; etiqueta CRM/Carrito en la lista.
+- **Added**: upsert de asesor por `crm_user_id` / email (`POST /v1/asesores/ensure`).
+
+## 2026-10-21 — Informe de accesos API
+
+- **Docs**: `docs/informeapi.md` — URLs, credenciales e instrucciones de uso (archivo local gitignored; no subir a GitHub).
+
+## 2026-10-21 — Panel admin de tokens Carrito API (v0.2.0)
+
+- **Added**: panel web `https://chatcrm.grupostravel.com/car-api/admin` (usuario/contraseña) para crear y revocar tokens Bearer sin editar el `.env`.
+
 ## 2026-10-21 — Extensión enlazada a Carrito API (v1.1.60)
 
 - **Added**: el carrito habla con la API `car_*` (popup → Config → URL + token): búsqueda de Contacto, guardado al cotizar, listado en Historial → Servidor.

@@ -25,7 +25,7 @@ API **activa** en el Chat Center: `/opt/carrito-gt-api`, systemd `carrito-gt-api
 | Agencias | `car_agencia` | Nombre PDF / cotización |
 | Cotizaciones | `car_cotizacion` | Nº CAR, asesor, agencia, contacto, fecha, `payload_json` |
 
-Autenticación: **Bearer token** (o header `X-API-Token`). Ver [SECURITY.md](./SECURITY.md).
+Autenticación: **Bearer token** (o header `X-API-Token`). Panel de tokens: **`/admin`**. Ver [SECURITY.md](./SECURITY.md) y [GUIA_USO.md](./GUIA_USO.md).
 
 ## Documentación interactiva
 

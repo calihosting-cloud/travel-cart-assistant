@@ -33,11 +33,36 @@ class Settings(BaseSettings):
     car_ip_allowlist: str = ""
     car_rate_limit_per_minute: int = 120
 
+    # Admin panel (/admin) — single operator; leave blank to disable login
+    car_admin_user: str = ""
+    car_admin_password: str = ""
+    car_admin_session_secret: str = ""
+    car_admin_session_hours: int = 8
+
     car_api_host: str = "127.0.0.1"
     car_api_port: int = 8787
     car_api_title: str = "Carrito GT API"
-    car_api_version: str = "0.1.0"
+    car_api_version: str = "0.2.2"
     car_cors_origins: str = ""
+    # Prefijo público detrás de nginx (Chat Center: /car-api). Vacío en local.
+    car_root_path: str = ""
+
+    def public_path(self, path: str) -> str:
+        """Build absolute path including reverse-proxy prefix."""
+        root = (self.car_root_path or "").rstrip("/")
+        if not path.startswith("/"):
+            path = "/" + path
+        return f"{root}{path}" if root else path
+
+    def admin_enabled(self) -> bool:
+        return bool(self.car_admin_user.strip() and self.car_admin_password.strip())
+
+    def session_secret(self) -> str:
+        secret = (self.car_admin_session_secret or "").strip()
+        if secret:
+            return secret
+        # Fallback so SessionMiddleware can start; set CAR_ADMIN_SESSION_SECRET in prod
+        return (self.car_admin_password or "carrito-gt-dev-session") + "|session"
 
     @field_validator("car_require_https", mode="before")
     @classmethod

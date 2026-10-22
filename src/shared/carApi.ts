@@ -5,6 +5,8 @@
 
 export const CAR_API_BASE_KEY = 'tce_car_api_base';
 export const CAR_API_TOKEN_KEY = 'tce_car_api_token';
+export const CAR_CRM_USER_ID_KEY = 'tce_crm_user_id';
+export const CAR_CRM_USER_EMAIL_KEY = 'tce_crm_user_email';
 
 /** URL pública (nginx → 127.0.0.1:8787). */
 export const DEFAULT_CAR_API_BASE = 'https://chatcrm.grupostravel.com/car-api';
@@ -23,6 +25,16 @@ export interface CarContacto {
   crm_contact_id?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Hit unificado CRM WhatsApp + car_contacto */
+export interface ContactSearchHit {
+  source: 'crm' | 'carrito' | string;
+  crm_contact_id?: string | null;
+  car_contacto_id?: number | null;
+  nombre: string;
+  telefono?: string | null;
+  telefono_norm?: string | null;
 }
 
 export interface CarCotizacion {
@@ -84,12 +96,41 @@ export async function saveCarApiToken(token: string): Promise<void> {
   await chrome.storage.local.set({ [CAR_API_TOKEN_KEY]: token.trim() });
 }
 
+export async function loadCrmUserId(): Promise<string> {
+  try {
+    const r = await chrome.storage.local.get(CAR_CRM_USER_ID_KEY);
+    const v = r[CAR_CRM_USER_ID_KEY];
+    if (typeof v === 'string') return v.trim();
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+export async function loadCrmUserEmail(): Promise<string> {
+  try {
+    const r = await chrome.storage.local.get(CAR_CRM_USER_EMAIL_KEY);
+    const v = r[CAR_CRM_USER_EMAIL_KEY];
+    if (typeof v === 'string') return v.trim();
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+export async function saveCrmUserLink(opts: { id?: string; email?: string }): Promise<void> {
+  const payload: Record<string, string> = {};
+  if (opts.id !== undefined) payload[CAR_CRM_USER_ID_KEY] = opts.id.trim();
+  if (opts.email !== undefined) payload[CAR_CRM_USER_EMAIL_KEY] = opts.email.trim();
+  if (Object.keys(payload).length) await chrome.storage.local.set(payload);
+}
+
 export async function carApiConfigured(): Promise<boolean> {
   const token = await loadCarApiToken();
   return token.length >= 16;
 }
 
-/** Llamada desde content/popup → background (evita CORS de la página). */
+/** Llamada desde content/popup → background (evita CORS de página). */
 export async function carApiRequest<T = unknown>(opts: {
   method?: string;
   path: string;
@@ -113,7 +154,22 @@ export async function carApiRequest<T = unknown>(opts: {
   }
 }
 
-export async function searchContactos(q: string, limit = 20): Promise<CarApiResult<{ items: CarContacto[]; total: number }>> {
+/** Búsqueda unificada CRM + carrito */
+export async function searchContactosMerged(
+  q: string,
+  limit = 20
+): Promise<CarApiResult<{ items: ContactSearchHit[]; total: number }>> {
+  return carApiRequest({
+    path: '/v1/contactos/search',
+    query: { q, limit },
+  });
+}
+
+/** @deprecated prefer searchContactosMerged */
+export async function searchContactos(
+  q: string,
+  limit = 20
+): Promise<CarApiResult<{ items: CarContacto[]; total: number }>> {
   return carApiRequest({
     path: '/v1/contactos',
     query: { q, limit },
@@ -124,11 +180,21 @@ export async function getContacto(id: number): Promise<CarApiResult<CarContacto>
   return carApiRequest({ path: `/v1/contactos/${id}` });
 }
 
+export async function ensureContacto(body: {
+  nombre: string;
+  telefono?: string;
+  crm_contact_id?: string;
+  email?: string;
+}): Promise<CarApiResult<CarContacto>> {
+  return carApiRequest({ method: 'POST', path: '/v1/contactos/ensure', body });
+}
+
 export async function createContacto(body: {
   nombre: string;
   telefono?: string;
   email?: string;
   notas?: string;
+  crm_contact_id?: string;
 }): Promise<CarApiResult<CarContacto>> {
   return carApiRequest({ method: 'POST', path: '/v1/contactos', body });
 }
@@ -151,6 +217,7 @@ export async function listCotizaciones(opts?: {
 export async function upsertCotizacion(body: {
   numero_car: number;
   numero_car_ref?: string;
+  asesor_id?: number;
   asesor_nombre?: string;
   agencia_nombre?: string;
   contacto_nombre?: string;
@@ -168,6 +235,22 @@ export async function listAsesores(): Promise<CarApiResult<CarAsesor[]>> {
   return carApiRequest({ path: '/v1/asesores', query: { activos: true } });
 }
 
+export async function ensureAsesor(body: {
+  nombre: string;
+  email?: string;
+  crm_user_id?: string;
+}): Promise<CarApiResult<CarAsesor>> {
+  return carApiRequest({ method: 'POST', path: '/v1/asesores/ensure', body });
+}
+
 export async function pingCarApi(): Promise<CarApiResult<{ ok: boolean; auth?: string }>> {
   return carApiRequest({ path: '/v1/me' });
+}
+
+/** Display label for asesores with same name: "Nombre · email" */
+export function formatAsesorLabel(a: Pick<CarAsesor, 'nombre' | 'email' | 'crm_user_id'>): string {
+  const name = (a.nombre || '').trim() || 'Asesor';
+  if (a.email) return `${name} · ${a.email}`;
+  if (a.crm_user_id) return `${name} · ${a.crm_user_id.slice(0, 8)}`;
+  return name;
 }

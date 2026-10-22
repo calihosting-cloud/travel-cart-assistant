@@ -4,6 +4,22 @@ Más reciente arriba. Formato alineado con el carrito.
 
 ---
 
+## 2026-10-22 — Búsqueda en crm.contacts (conversaciones) (v0.2.2)
+
+- **Fixed**: `/v1/contactos/search` lee `crm.contacts` (contactos de Conversaciones Chat Center, miles de filas), no la tabla Evolution `"Contact"` (~22).
+
+## 2026-10-21 — Búsqueda CRM Contact + ensure (v0.2.1)
+
+- **Added**: `GET /v1/contactos/search` — une CRM + `car_contacto` (dedupe por teléfono / crm id).
+- **Added**: `POST /v1/contactos/ensure` — crea/actualiza `car_contacto` al elegir un hit.
+- **Added**: `POST /v1/asesores/ensure` — upsert por `crm_user_id` o email.
+
+## 2026-10-21 — Panel admin de tokens (v0.2.0)
+
+- **Added**: `GET /admin` — login con `CAR_ADMIN_USER` / `CAR_ADMIN_PASSWORD`; crear, listar, revocar y reactivar tokens en `car_api_token` (hash SHA-256; el secreto se muestra una sola vez).
+- **Changed**: Bearer acepta tokens del `.env` **o** hashes activos en BD.
+- **Docs**: `.env.example`, `GUIA_USO.md`, `SECURITY.md`; script `scripts/deploy_admin_update.py`.
+
 ## 2026-10-21 — Extensión conectada + proxy /car-api
 
 - **Fixed**: proxy en Docker `crm_nginx` (`/opt/crm/nginx/conf.d/default.conf` → `172.16.0.1:8787`); script `scripts/patch_crm_nginx_car_api.py`.

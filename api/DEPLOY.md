@@ -41,7 +41,8 @@ nano .env
 Rellenar:
 
 - `CAR_DB_*` (host **127.0.0.1** si Postgres está en la misma máquina)
-- `CAR_API_TOKENS` (token largo)
+- `CAR_API_TOKENS` (token largo de bootstrap; opcional si usas solo `/admin`)
+- `CAR_ADMIN_USER` / `CAR_ADMIN_PASSWORD` / `CAR_ADMIN_SESSION_SECRET` (panel `/admin`)
 - `CAR_REQUIRE_HTTPS=true`
 - `CAR_API_HOST=0.0.0.0` (en producción Chat Center: alcanzable desde `crm_nginx` vía `172.16.0.1`)
 

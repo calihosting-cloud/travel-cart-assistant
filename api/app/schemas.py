@@ -41,7 +41,35 @@ class ContactoListOut(BaseModel):
     total: int
 
 
+class ContactSearchHit(BaseModel):
+    source: str  # "crm" | "carrito"
+    crm_contact_id: Optional[str] = None
+    car_contacto_id: Optional[int] = None
+    nombre: str
+    telefono: Optional[str] = None
+    telefono_norm: Optional[str] = None
+
+
+class ContactSearchOut(BaseModel):
+    items: List[ContactSearchHit]
+    total: int
+
+
+class ContactEnsureIn(BaseModel):
+    nombre: str = Field(min_length=1, max_length=200)
+    telefono: Optional[str] = Field(default=None, max_length=40)
+    crm_contact_id: Optional[str] = None
+    email: Optional[str] = Field(default=None, max_length=200)
+
+
 class AsesorCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=200)
+    email: Optional[str] = None
+    crm_user_id: Optional[str] = None
+    activo: bool = True
+
+
+class AsesorEnsureIn(BaseModel):
     nombre: str = Field(min_length=1, max_length=200)
     email: Optional[str] = None
     crm_user_id: Optional[str] = None
