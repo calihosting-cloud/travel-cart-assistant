@@ -202,6 +202,16 @@ import { airlineLogoUrl, flightPrimaryAirlineCode } from '../shared/airlineLogos
 import { openQuotePdfPrint } from './QuotePdf';
 import { openAsistentePanel } from '../shared/openAsistente';
 import {
+  carApiConfigured,
+  type CarContacto,
+  type CarCotizacion,
+  createContacto,
+  getContacto,
+  listCotizaciones,
+  searchContactos,
+  upsertCotizacion,
+} from '../shared/carApi';
+import {
   isChatCenterHost,
   loadTabTopPct,
   pasteQuoteIntoChatCenter,
@@ -350,6 +360,16 @@ export class CartSidebar {
   private lastLocalFeesWriteAt = 0;
   /** Blue Asistente tab vertical position (% of viewport height). */
   private tabTopPct = 50;
+  /** Contact search (API car_*). */
+  private contactHits: CarContacto[] = [];
+  private contactSearchOpen = false;
+  private contactSearchTimer: number | null = null;
+  private selectedContactId: number | null = null;
+  private selectedContactPhone = '';
+  /** Cotizaciones en servidor (car_cotizacion). */
+  private remoteQuotes: CarCotizacion[] = [];
+  private remoteQuotesLoaded = false;
+  private carApiReady = false;
 
   private isLocalStorageEcho(writtenAt: number, windowMs = 150): boolean {
     return writtenAt > 0 && Date.now() - writtenAt < windowMs;
@@ -414,6 +434,8 @@ export class CartSidebar {
     this.history = await loadHistory();
     this.dismissedWarnings = await loadDismissedWarnings();
     this.tabTopPct = await loadTabTopPct();
+    this.carApiReady = await carApiConfigured();
+    if (this.carApiReady) void this.refreshRemoteQuotes();
     // Strip legacy hotel-level …9; package …9 is applied in summarizeWholesaleOption.
     if (this.syncAutoRoundOccupancy()) {
       await this.saveToStorage();
@@ -1119,6 +1141,178 @@ export class CartSidebar {
     await upsertHistory(entry);
     this.history = await loadHistory();
     void appendAppLog('info', `Historial: ${reason} ${formatQuoteRef(quoteNumber)}`);
+    void (async () => {
+      await this.ensureContactOnServer();
+      await this.syncQuoteToCarApi(quoteNumber, entry, reason);
+    })();
+  }
+
+  private async syncQuoteToCarApi(
+    quoteNumber: number,
+    entry: HistoryEntry,
+    reason: string
+  ): Promise<void> {
+    if (!(await carApiConfigured())) return;
+    const res = await upsertCotizacion({
+      numero_car: quoteNumber,
+      numero_car_ref: formatQuoteRef(quoteNumber),
+      asesor_nombre: this.advisorName || undefined,
+      agencia_nombre: this.agencyName || entry.agencyName || undefined,
+      contacto_nombre: this.clientName || entry.clientName || undefined,
+      contacto_telefono: this.selectedContactPhone || undefined,
+      contacto_id: this.selectedContactId || undefined,
+      payload_json: {
+        reason,
+        quoteMode: entry.quoteMode,
+        items: entry.items,
+        fees: entry.fees,
+        searchContext: entry.searchContext,
+        hotelOptionGroups: entry.hotelOptionGroups,
+        clientName: entry.clientName,
+        agencyName: entry.agencyName,
+        savedAt: Date.now(),
+      },
+      origen: 'extension',
+    });
+    if (res.ok) {
+      this.carApiReady = true;
+      void appendAppLog('info', `API: guardada ${formatQuoteRef(quoteNumber)}`);
+      void this.refreshRemoteQuotes();
+    } else {
+      void appendAppLog('warn', `API cotización: ${res.error}`);
+    }
+  }
+
+  private async refreshRemoteQuotes(): Promise<void> {
+    if (!(await carApiConfigured())) {
+      this.carApiReady = false;
+      this.remoteQuotes = [];
+      this.remoteQuotesLoaded = true;
+      return;
+    }
+    this.carApiReady = true;
+    const res = await listCotizaciones({ limit: 40 });
+    if (res.ok) {
+      this.remoteQuotes = res.data.items || [];
+    } else {
+      this.remoteQuotes = [];
+      void appendAppLog('warn', `API listar: ${res.error}`);
+    }
+    this.remoteQuotesLoaded = true;
+    if (this.panelTab === 'history') this.render();
+  }
+
+  private scheduleContactSearch(q: string): void {
+    if (this.contactSearchTimer) window.clearTimeout(this.contactSearchTimer);
+    this.contactSearchTimer = window.setTimeout(() => {
+      this.contactSearchTimer = null;
+      void this.runContactSearch(q);
+    }, 280);
+  }
+
+  private async runContactSearch(q: string): Promise<void> {
+    const term = q.trim();
+    if (term.length < 2 || !(await carApiConfigured())) {
+      this.contactHits = [];
+      this.contactSearchOpen = false;
+      this.renderContactDropdownOnly();
+      return;
+    }
+    const res = await searchContactos(term, 12);
+    if (!res.ok) {
+      this.contactHits = [];
+      this.contactSearchOpen = false;
+      this.renderContactDropdownOnly();
+      return;
+    }
+    this.contactHits = res.data.items || [];
+    this.contactSearchOpen = this.contactHits.length > 0;
+    this.renderContactDropdownOnly();
+  }
+
+  private renderContactDropdownOnly(): void {
+    const host = this.shadow.querySelector('.tce-contact-dd');
+    if (!host) return;
+    host.innerHTML = this.contactDropdownHtml();
+  }
+
+  private contactDropdownHtml(): string {
+    if (!this.contactSearchOpen || this.contactHits.length === 0) return '';
+    return this.contactHits
+      .map((c) => {
+        const phone = this.escape(c.telefono || c.telefono_norm || '—');
+        return `<div class="tce-contact-hit">
+          <button type="button" class="tce-contact-hit-main" data-action="pick-contact" data-id="${c.id}">
+            <span class="tce-contact-hit-name">${this.escape(c.nombre)}</span>
+            <span class="tce-contact-hit-phone">${phone}</span>
+          </button>
+          <button type="button" class="tce-contact-hit-det" data-action="contact-detail" data-id="${c.id}">Detalles</button>
+        </div>`;
+      })
+      .join('');
+  }
+
+  private async pickContact(id: number): Promise<void> {
+    const hit = this.contactHits.find((c) => c.id === id);
+    let c = hit;
+    if (!c) {
+      const res = await getContacto(id);
+      if (!res.ok) return;
+      c = res.data;
+    }
+    this.selectedContactId = c.id;
+    this.selectedContactPhone = c.telefono || c.telefono_norm || '';
+    this.clientName = c.nombre;
+    void saveClientName(this.clientName);
+    this.contactSearchOpen = false;
+    this.contactHits = [];
+    this.render();
+  }
+
+  private async showContactDetail(id: number): Promise<void> {
+    const res = await getContacto(id);
+    if (!res.ok) {
+      window.alert(res.error || 'No se pudo cargar el contacto');
+      return;
+    }
+    const c = res.data;
+    window.alert(
+      [
+        c.nombre,
+        c.telefono ? `Tel: ${c.telefono}` : null,
+        c.email ? `Email: ${c.email}` : null,
+        c.notas ? `Notas: ${c.notas}` : null,
+        `Id: ${c.id}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    );
+  }
+
+  private async ensureContactOnServer(): Promise<void> {
+    const name = this.clientName.trim();
+    if (!name || !(await carApiConfigured())) return;
+    if (this.selectedContactId) return;
+    const found = await searchContactos(name, 5);
+    if (found.ok) {
+      const exact = found.data.items.find(
+        (c) => c.nombre.trim().toLowerCase() === name.toLowerCase()
+      );
+      if (exact) {
+        this.selectedContactId = exact.id;
+        this.selectedContactPhone = exact.telefono || exact.telefono_norm || '';
+        return;
+      }
+    }
+    const created = await createContacto({
+      nombre: name,
+      telefono: this.selectedContactPhone || undefined,
+    });
+    if (created.ok) {
+      this.selectedContactId = created.data.id;
+      this.selectedContactPhone =
+        created.data.telefono || created.data.telefono_norm || this.selectedContactPhone;
+    }
   }
 
   /** Reload a frozen quote into the live cart (for BM reopen / venta efectiva). */
@@ -2493,6 +2687,107 @@ export class CartSidebar {
         outline: none;
         border-color: #facc15;
         box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35);
+      }
+      .tce-contact-wrap {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .tce-contact-wrap .tce-client-input { width: 100%; }
+      .tce-contact-phone {
+        font-size: 10px;
+        opacity: 0.9;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tce-contact-dd {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 2px);
+        z-index: 50;
+        max-height: 180px;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15,23,42,0.18);
+      }
+      .tce-contact-hit {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        width: 100%;
+        border-bottom: 1px solid #f1f5f9;
+        background: #fff;
+        padding: 4px 6px;
+      }
+      .tce-contact-hit:hover { background: #f8fafc; }
+      .tce-contact-hit-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        border: none;
+        background: transparent;
+        padding: 4px;
+        text-align: left;
+        cursor: pointer;
+        font-family: inherit;
+        color: #0f172a;
+        min-width: 0;
+      }
+      .tce-contact-hit-name { font-size: 12px; font-weight: 600; }
+      .tce-contact-hit-phone { font-size: 11px; color: #64748b; }
+      .tce-contact-hit-det {
+        flex-shrink: 0;
+        border: none;
+        font-size: 10px;
+        font-weight: 700;
+        color: #be185d;
+        padding: 4px 8px;
+        border-radius: 99px;
+        background: #fdf2f8;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .tce-remote-history { margin-top: 10px; }
+      .tce-remote-history h3 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #334155;
+      }
+      .tce-remote-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        align-items: baseline;
+        padding: 8px 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        background: #f8fafc;
+        font-size: 12px;
+      }
+      .tce-remote-ref { font-weight: 700; color: #9d174d; }
+      .tce-remote-meta { color: #64748b; font-size: 11px; }
+      .tce-api-pill {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 99px;
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .tce-api-pill--ok {
+        background: #dcfce7;
+        color: #166534;
       }
       .tce-header-actions {
         display: flex;
@@ -5698,14 +5993,23 @@ export class CartSidebar {
           </div>
           <div class="tce-header-client">
             <label for="tce-client-input">Contacto</label>
-            <input
-              id="tce-client-input"
-              class="tce-client-input"
-              type="text"
-              maxlength="120"
-              placeholder="Nombre del contacto"
-              value="${this.escape(this.clientName)}"
-            />
+            <div class="tce-contact-wrap">
+              <input
+                id="tce-client-input"
+                class="tce-client-input"
+                type="text"
+                maxlength="120"
+                placeholder="Nombre o teléfono…"
+                autocomplete="off"
+                value="${this.escape(this.clientName)}"
+              />
+              ${
+                this.selectedContactPhone
+                  ? `<span class="tce-contact-phone" title="Teléfono">${this.escape(this.selectedContactPhone)}</span>`
+                  : ''
+              }
+              <div class="tce-contact-dd">${this.contactDropdownHtml()}</div>
+            </div>
           </div>
           <div class="tce-header-agency">
             <label for="tce-agency-input">Agencia</label>
@@ -5793,13 +6097,43 @@ export class CartSidebar {
       <div class="tce-history-toolbar">
         <button type="button" class="tce-history-tool" data-action="export-history" title="Descargar respaldo JSON del historial">Exportar historial</button>
         <button type="button" class="tce-history-tool" data-action="import-history" title="Fusionar cotizaciones desde un JSON">Importar historial…</button>
+        <button type="button" class="tce-history-tool" data-action="refresh-remote-quotes" title="Recargar cotizaciones del servidor">Servidor</button>
         <input type="file" class="tce-history-import-file" accept="application/json,.json" hidden />
       </div>
-      <p class="tce-history-hint">Chrome borra el historial si <strong>quitas</strong> la extensión. Usa <strong>Reload</strong> al actualizar, y <strong>Exportar historial</strong> antes de reinstalar.</p>`;
+      <p class="tce-history-hint">
+        <span class="tce-api-pill${this.carApiReady ? ' tce-api-pill--ok' : ''}">${this.carApiReady ? 'API conectada' : 'API sin token'}</span>
+        Chrome borra el historial local si <strong>quitas</strong> la extensión. El servidor guarda en tablas <code>car_*</code> (popup → Config → token).
+      </p>`;
+    const remote = this.renderRemoteQuotesSection();
     if (this.history.length === 0) {
-      return `${toolbar}<div class="tce-empty"><p>Aún no hay historial.<br>Se guarda al copiar WhatsApp, PDF o vaciar el carrito.<br>Si tienes un JSON de respaldo, usa <strong>Importar historial</strong>.</p></div>`;
+      return `${toolbar}${remote}<div class="tce-empty"><p>Aún no hay historial local.<br>Se guarda al copiar WhatsApp, PDF o vaciar el carrito.</p></div>`;
     }
-    return `${toolbar}${this.history.map((h) => this.renderHistoryEntry(h)).join('')}`;
+    return `${toolbar}${remote}<h3 class="tce-remote-history" style="margin-top:12px">Historial local</h3>${this.history.map((h) => this.renderHistoryEntry(h)).join('')}`;
+  }
+
+  private renderRemoteQuotesSection(): string {
+    if (!this.remoteQuotesLoaded && this.carApiReady) {
+      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Cargando…</p></div>`;
+    }
+    if (!this.carApiReady) {
+      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Configura URL + token en el popup (Config → Carrito API).</p></div>`;
+    }
+    if (this.remoteQuotes.length === 0) {
+      return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion)</h3><p class="tce-history-hint">Aún no hay cotizaciones en la base. Se crean al copiar WhatsApp / PDF / Chat Center.</p></div>`;
+    }
+    const rows = this.remoteQuotes
+      .map((q) => {
+        const when = q.created_at ? new Date(q.created_at).toLocaleString('es-CO') : '';
+        return `<div class="tce-remote-row">
+          <span class="tce-remote-ref">${this.escape(q.numero_car_ref)}</span>
+          <span>${this.escape(q.contacto_nombre || '—')}</span>
+          <span class="tce-remote-meta">${this.escape(q.asesor_nombre || '')}</span>
+          <span class="tce-remote-meta">${this.escape(q.agencia_nombre || '')}</span>
+          <span class="tce-remote-meta">${this.escape(when)}</span>
+        </div>`;
+      })
+      .join('');
+    return `<div class="tce-remote-history"><h3>Servidor (car_cotizacion) · ${this.remoteQuotes.length}</h3>${rows}</div>`;
   }
 
   private historyItemLineTotal(
@@ -7338,6 +7672,16 @@ export class CartSidebar {
       } else if (action === 'restore-history') {
         const n = Number(target.dataset.quoteNumber);
         if (n > 0) void this.restoreHistoryEntry(n);
+      } else if (action === 'pick-contact') {
+        const id = Number(target.dataset.id);
+        if (id > 0) void this.pickContact(id);
+      } else if (action === 'contact-detail') {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = Number(target.dataset.id);
+        if (id > 0) void this.showContactDetail(id);
+      } else if (action === 'refresh-remote-quotes') {
+        void this.refreshRemoteQuotes();
       } else if (action === 'export-history') {
         if (this.history.length === 0) {
           window.alert('No hay cotizaciones para exportar.');
@@ -7497,7 +7841,10 @@ export class CartSidebar {
 
       if (target.classList.contains('tce-client-input')) {
         this.clientName = (target as HTMLInputElement).value;
+        this.selectedContactId = null;
+        this.selectedContactPhone = '';
         void saveClientName(this.clientName);
+        this.scheduleContactSearch(this.clientName);
         return;
       }
 

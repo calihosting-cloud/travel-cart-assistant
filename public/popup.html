@@ -60,6 +60,30 @@
     </div>
 
     <div class="config-block">
+      <h2>Carrito API (Postgres)</h2>
+      <p class="hint" style="margin-top:0">
+        Conecta el carrito a las tablas <code>car_*</code> del Chat Center.
+        URL por defecto: <code>https://chatcrm.grupostravel.com/car-api</code>.
+        El token está en el servidor / en <code>api/.deployed_api_token.txt</code> (no compartas en público).
+      </p>
+      <div class="ta-grid">
+        <label>
+          Base URL
+          <input id="car-api-base" type="url" placeholder="https://chatcrm.grupostravel.com/car-api" />
+        </label>
+        <label>
+          Token API
+          <input id="car-api-token" type="password" autocomplete="off" placeholder="Bearer token…" />
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <button type="button" id="btn-car-api-save" class="btn-secondary">Guardar</button>
+        <button type="button" id="btn-car-api-test" class="btn-secondary">Probar conexión</button>
+        <span id="car-api-status" class="hint" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="config-block">
       <h2>Fuente TRM</h2>
       <p class="hint" style="margin-top:0">
         Sitio preferido para actualizar la TRM. Si falla, se intenta el otro.

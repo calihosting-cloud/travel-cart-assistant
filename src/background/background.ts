@@ -1,5 +1,10 @@
 import { APP_LOG_KEY, AppLogEntry } from '../shared/appLog';
 import {
+  DEFAULT_CAR_API_BASE,
+  loadCarApiBase,
+  loadCarApiToken,
+} from '../shared/carApi';
+import {
   CHAT_CENTER_CONVERSACIONES_URL,
   ISABELA_BACKOFFICE_URL,
 } from '../shared/chatCenter';
@@ -109,6 +114,65 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     void refreshOfficialTrm(Boolean(message.force))
       .then((trm) => sendResponse({ ok: !!trm, trm }))
       .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message?.type === 'TCE_CAR_API') {
+    void (async () => {
+      try {
+        const base = (await loadCarApiBase()) || DEFAULT_CAR_API_BASE;
+        const token = await loadCarApiToken();
+        if (!token) {
+          sendResponse({
+            ok: false,
+            error: 'Configura el token de API en el popup → Config → Carrito API.',
+          });
+          return;
+        }
+        const method = String(message.method || 'GET').toUpperCase();
+        let path = String(message.path || '/');
+        if (!path.startsWith('/')) path = `/${path}`;
+        const url = new URL(base.replace(/\/$/, '') + path);
+        const query = message.query && typeof message.query === 'object' ? message.query : {};
+        for (const [k, v] of Object.entries(query)) {
+          if (v === undefined || v === null || v === '') continue;
+          url.searchParams.set(k, String(v));
+        }
+        const headers: Record<string, string> = {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const init: RequestInit = { method, headers };
+        if (method !== 'GET' && method !== 'HEAD' && message.body !== undefined) {
+          headers['Content-Type'] = 'application/json';
+          init.body = JSON.stringify(message.body);
+        }
+        const res = await fetch(url.toString(), init);
+        const text = await res.text();
+        let data: unknown = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text;
+        }
+        if (!res.ok) {
+          const detail =
+            data && typeof data === 'object' && data !== null && 'detail' in data
+              ? String((data as { detail: unknown }).detail)
+              : text.slice(0, 200);
+          sendResponse({
+            ok: false,
+            status: res.status,
+            error: detail || `HTTP ${res.status}`,
+          });
+          return;
+        }
+        sendResponse({ ok: true, status: res.status, data });
+      } catch (err) {
+        console.error('[TCE] TCE_CAR_API failed', err);
+        sendResponse({ ok: false, error: String(err) });
+      }
+    })();
     return true;
   }
 

@@ -16,9 +16,10 @@
 | `GET /health` | `{"ok":true,"version":"0.1.0","schema_version":"0.1.0"}` |
 | `GET /v1/me` con token | `{"ok":true,"auth":"token"}` |
 
-- **Bind:** `127.0.0.1:8787` (solo localhost en el servidor).
+- **Bind:** `0.0.0.0:8787` (alcanzable desde Docker `crm_nginx` vía `172.16.0.1`).
 - **Servicio:** `systemctl status carrito-gt-api`
 - **Logs:** `journalctl -u carrito-gt-api -f`
+- **Health público:** `GET https://chatcrm.grupostravel.com/car-api/health` → `{"ok":true,...}`
 
 ## Token de API
 
@@ -28,14 +29,29 @@ El token de despliegue se guardó **solo en local** (gitignored):
 
 No se sube a GitHub. Para un nuevo token: `python3 scripts/gen_token.py` → añadir a `CAR_API_TOKENS` en el `.env` del servidor → `systemctl restart carrito-gt-api`.
 
-## Exponer por HTTPS (pendiente opcional)
+## HTTPS / nginx (Docker CRM)
 
-Hoy la API responde en loopback. Para uso externo hace falta nginx/Caddy con TLS apuntando a `127.0.0.1:8787` (ver `DEPLOY.md` §7). Hasta entonces, pruebas desde el propio servidor o túnel SSH:
+Chat Center usa **nginx en Docker** (`crm_nginx`), no el nginx del host. Conf:
 
-```bash
-ssh -L 8787:127.0.0.1:8787 root@SERVIDOR
-curl -s http://127.0.0.1:8787/health
+- Host: `/opt/crm/nginx/conf.d/default.conf` (montado en el contenedor)
+- `location /car-api/` → `proxy_pass http://172.16.0.1:8787/;` (antes del catch-all `/`)
+- Backup: `default.conf.bak-carapi`
+- Reload: `docker exec crm_nginx nginx -s reload`
+
+```text
+https://chatcrm.grupostravel.com/car-api/health
+https://chatcrm.grupostravel.com/car-api/docs
 ```
+
+Script de parche: `api/scripts/patch_crm_nginx_car_api.py`.
+
+### Extensión (v1.1.60+)
+
+1. Compilar / recargar extensión.
+2. Popup → **Config → Carrito API**.
+3. Base URL: `https://chatcrm.grupostravel.com/car-api`
+4. Pegar token desde `api/.deployed_api_token.txt` → **Guardar** → **Probar conexión**.
+5. En el carrito: Contacto busca en BD; Historial → **Servidor**; al copiar WhatsApp/PDF se guarda `car_cotizacion`.
 
 ## Rollback
 

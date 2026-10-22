@@ -43,7 +43,7 @@ Rellenar:
 - `CAR_DB_*` (host **127.0.0.1** si Postgres está en la misma máquina)
 - `CAR_API_TOKENS` (token largo)
 - `CAR_REQUIRE_HTTPS=true`
-- `CAR_API_HOST=127.0.0.1` (nginx delante)
+- `CAR_API_HOST=0.0.0.0` (en producción Chat Center: alcanzable desde `crm_nginx` vía `172.16.0.1`)
 
 ## 4. Migración SQL
 
@@ -63,7 +63,7 @@ psql ... -f sql/001_car_tables_rollback.sql
 
 ```bash
 source .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8787
+uvicorn app.main:app --host 0.0.0.0 --port 8787
 curl -s http://127.0.0.1:8787/health
 curl -s -H "Authorization: Bearer TU_TOKEN" http://127.0.0.1:8787/v1/me
 ```
@@ -82,7 +82,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/carrito-gt-api
 EnvironmentFile=/opt/carrito-gt-api/.env
-ExecStart=/opt/carrito-gt-api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8787
+ExecStart=/opt/carrito-gt-api/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8787
 Restart=on-failure
 
 [Install]
@@ -95,9 +95,16 @@ systemctl enable --now carrito-gt-api
 systemctl status carrito-gt-api
 ```
 
-## 7. Nginx (TLS)
+## 7. Nginx (TLS) — Chat Center Docker
 
-Proxy a `http://127.0.0.1:8787` con certificado HTTPS. No expongas el puerto 8787 al mundo.
+En el servidor CRM, nginx está en el contenedor **`crm_nginx`** (no el nginx del host). Añadir `location /car-api/` en `/opt/crm/nginx/conf.d/default.conf` **antes** del catch-all `/`, apuntando a `http://172.16.0.1:8787/`. Luego:
+
+```bash
+docker exec crm_nginx nginx -t && docker exec crm_nginx nginx -s reload
+curl -sk https://chatcrm.grupostravel.com/car-api/health
+```
+
+Script: `scripts/patch_crm_nginx_car_api.py`. No publicar el puerto 8787 en el firewall público.
 
 ## Versionado / volver atrás
 

@@ -12,6 +12,11 @@ Formato por entrada:
 
 ---
 
+## 2026-10-21 — Extensión enlazada a Carrito API (v1.1.60)
+
+- **Added**: el carrito habla con la API `car_*` (popup → Config → URL + token): búsqueda de Contacto, guardado al cotizar, listado en Historial → Servidor.
+- **Fixed**: proxy HTTPS vivo en `https://chatcrm.grupostravel.com/car-api` vía `crm_nginx` (`/opt/crm/nginx/conf.d/default.conf` → `172.16.0.1:8787`); uvicorn escucha `0.0.0.0:8787`.
+
 ## 2026-10-21 — API desplegada en Chat Center
 
 - **Added**: Carrito GT API 0.1.0 en producción (`carrito-gt-api`, tablas `car_*`, health OK en localhost:8787). Ver `api/DEPLOY_STATUS.md`.

@@ -20,6 +20,14 @@ import {
   removeOriginCity,
 } from '../shared/originCities';
 import {
+  DEFAULT_CAR_API_BASE,
+  loadCarApiBase,
+  loadCarApiToken,
+  pingCarApi,
+  saveCarApiBase,
+  saveCarApiToken,
+} from '../shared/carApi';
+import {
   DEFAULT_TRM_SOURCE,
   DEFAULT_TRM_SUPLEMENTO,
   loadTrmSource,
@@ -264,6 +272,43 @@ async function loadChangelog(): Promise<void> {
   }
 }
 
+async function fillCarApiForm(): Promise<void> {
+  const baseEl = document.getElementById('car-api-base') as HTMLInputElement | null;
+  const tokenEl = document.getElementById('car-api-token') as HTMLInputElement | null;
+  if (baseEl) baseEl.value = await loadCarApiBase();
+  if (tokenEl) tokenEl.value = await loadCarApiToken();
+}
+
+function bindCarApiForm(): void {
+  const status = () => document.getElementById('car-api-status');
+  document.getElementById('btn-car-api-save')?.addEventListener('click', () => {
+    const baseEl = document.getElementById('car-api-base') as HTMLInputElement | null;
+    const tokenEl = document.getElementById('car-api-token') as HTMLInputElement | null;
+    const base = (baseEl?.value || DEFAULT_CAR_API_BASE).trim();
+    const token = (tokenEl?.value || '').trim();
+    void (async () => {
+      await saveCarApiBase(base || DEFAULT_CAR_API_BASE);
+      await saveCarApiToken(token);
+      const el = status();
+      if (el) el.textContent = token ? '✓ Guardado' : 'Guardado (sin token)';
+    })();
+  });
+  document.getElementById('btn-car-api-test')?.addEventListener('click', () => {
+    const el = status();
+    if (el) el.textContent = 'Probando…';
+    void (async () => {
+      const baseEl = document.getElementById('car-api-base') as HTMLInputElement | null;
+      const tokenEl = document.getElementById('car-api-token') as HTMLInputElement | null;
+      await saveCarApiBase((baseEl?.value || DEFAULT_CAR_API_BASE).trim());
+      await saveCarApiToken((tokenEl?.value || '').trim());
+      const res = await pingCarApi();
+      if (el) {
+        el.textContent = res.ok ? '✓ Conexión OK' : `✗ ${res.error}`;
+      }
+    })();
+  });
+}
+
 async function init(): Promise<void> {
   setupTabs();
   document.getElementById('btn-open-asistente')?.addEventListener('click', () => {
@@ -278,10 +323,12 @@ async function init(): Promise<void> {
   fillTrmSuplementoForm();
   fillTrmSourceForm();
   fillOriginCitiesForm();
+  await fillCarApiForm();
   bindTaForm();
   bindTrmSuplementoForm();
   bindTrmSourceForm();
   bindOriginCitiesForm();
+  bindCarApiForm();
   renderLists();
   bindListEvents();
   bindAddForms();
