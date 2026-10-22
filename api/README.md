@@ -6,6 +6,12 @@ API independiente para guardar/consultar datos del carrito en la **misma Postgre
 - **Python 3.10** (servidor Chat Center: Ubuntu 22.04 / Python 3.10.12).
 - Versión API: **0.1.0** · Schema SQL: **0.1.0**
 
+## Para el equipo (compartir esto)
+
+**Guía completa de uso, tokens y ejemplos curl:** → **[GUIA_USO.md](./GUIA_USO.md)**
+
+También: [DEPLOY.md](./DEPLOY.md) (instalación servidor) · [SECURITY.md](./SECURITY.md) · [CHANGELOG.md](./CHANGELOG.md)
+
 ## Qué incluye
 
 | Recurso | Tabla | Uso |

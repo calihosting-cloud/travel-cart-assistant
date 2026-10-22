@@ -12,6 +12,10 @@ Formato por entrada:
 
 ---
 
+## 2026-10-21 — Guía de uso API (compartible)
+
+- **Docs**: `api/GUIA_USO.md` — tokens, auth, endpoints y ejemplos para pasar al equipo.
+
 ## 2026-10-21 — API FastAPI car_* (docs; extensión intacta)
 
 - **Added**: carpeta `api/` — FastAPI 0.1.0 + SQL `car_*` (Postgres Chat Center), auth por token, deploy/seguridad documentados. **No cambia** el código de la extensión.

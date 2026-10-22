@@ -4,6 +4,10 @@ Más reciente arriba. Formato alineado con el carrito.
 
 ---
 
+## 2026-10-21 — Guía de uso para el equipo
+
+- **Docs**: `GUIA_USO.md` — cómo crear tokens, autenticarse, endpoints con `curl`, flujos típicos y checklist de acceso. Enlace destacado desde `README.md`.
+
 ## 2026-10-21 — API inicial FastAPI + tablas car_* (v0.1.0)
 
 - **Added**: proyecto `api/` (FastAPI, Python 3.10) con auth Bearer / `X-API-Token`, rate limit, CORS, HTTPS check.
