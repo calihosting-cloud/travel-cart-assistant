@@ -12,6 +12,10 @@ Formato por entrada:
 
 ---
 
+## 2026-10-23 — Header en una sola línea (v1.1.67)
+
+- **Changed**: título + contacto + teléfono + agencia + email + oportunidad + comparar en **una sola fila**, campos más cortos.
+
 ## 2026-10-23 — Header del asistente alineado a la izquierda (v1.1.66)
 
 - **Changed**: Contacto / Agencia / Oportunidad quedan en una fila bajo el título, pegados a la izquierda (sin hueco grande).

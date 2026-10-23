@@ -2832,153 +2832,127 @@ export class CartSidebar {
 
       .tce-header {
         display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        padding: 8px 12px 10px;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 6px 10px;
         background: #1e40af;
         color: #fff;
         flex-shrink: 0;
-        gap: 8px;
-      }
-      .tce-header-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        min-width: 0;
-      }
-      .tce-header-fields {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: flex-end;
-        justify-content: flex-start;
-        gap: 8px 10px;
-        width: 100%;
+        gap: 6px;
+        overflow: hidden;
       }
       .tce-header-title {
         display: flex;
         align-items: baseline;
         flex-wrap: nowrap;
-        gap: 5px;
+        gap: 4px;
         min-width: 0;
-        flex: 1 1 auto;
+        flex: 0 1 118px;
         overflow: hidden;
       }
       .tce-header h2 {
         margin: 0;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         white-space: nowrap;
         flex-shrink: 0;
       }
       .tce-header-meta {
-        font-size: 11px;
+        font-size: 10px;
         opacity: 0.85;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        min-width: 0;
       }
       .tce-header-client {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 3px;
-        flex: 0 1 280px;
-        min-width: 180px;
-        max-width: 340px;
-      }
-      .tce-header-agency {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 3px;
-        flex: 0 1 150px;
-        min-width: 120px;
-        max-width: 190px;
-      }
-      .tce-header-opp {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 3px;
-        flex: 0 1 180px;
-        min-width: 140px;
-        max-width: 220px;
-      }
-      .tce-header-fields .tce-hotel-options-toggle {
-        margin-bottom: 2px;
-        flex: 0 0 auto;
-      }
-      .tce-header-client label,
-      .tce-header-agency label,
-      .tce-header-opp label {
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.3px;
-        opacity: 0.9;
-        flex-shrink: 0;
-      }
-      .tce-email-input,
-      .tce-opp-select {
-        width: 100%;
-        box-sizing: border-box;
-        border: none;
-        border-radius: 6px;
-        padding: 5px 8px;
-        font-size: 12px;
-        font-family: inherit;
-        color: #0f172a;
-        background: #fff;
-      }
-      .tce-opp-select { cursor: pointer; }
-      .tce-contact-wrap {
         position: relative;
-        width: 100%;
         display: flex;
         flex-direction: row;
-        flex-wrap: wrap;
-        gap: 6px;
-        align-items: stretch;
-      }
-      .tce-contact-wrap .tce-client-input {
-        flex: 1 1 140px;
-        min-width: 120px;
-      }
-      .tce-contact-wrap .tce-contact-phone-input {
-        flex: 0 1 140px;
-        min-width: 110px;
-        width: auto;
-      }
-      .tce-client-input,
-      .tce-agency-input {
-        flex: 1;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 4px;
+        flex: 0 1 auto;
         min-width: 0;
-        border: 1px solid rgba(255,255,255,0.35);
-        border-radius: 5px;
-        padding: 4px 7px;
-        font-size: 12px;
-        color: #0f172a;
-        background: #fff;
       }
-      .tce-client-input:focus,
-      .tce-agency-input:focus {
-        outline: none;
-        border-color: #facc15;
-        box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35);
+      .tce-header-agency,
+      .tce-header-opp {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 4px;
+        flex: 0 1 auto;
+        min-width: 0;
+      }
+      .tce-header .tce-hotel-options-toggle {
+        flex: 0 0 auto;
+        margin: 0;
+      }
+      .tce-contact-wrap {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 4px;
+        align-items: center;
+        min-width: 0;
+      }
+      .tce-client-input {
+        width: 120px;
+        max-width: 120px;
+        flex: 0 0 120px;
       }
       .tce-contact-phone-input {
-        font-size: 12px;
-        padding: 4px 7px;
+        width: 96px;
+        max-width: 96px;
+        flex: 0 0 96px;
+        font-size: 11px;
+        padding: 4px 6px;
         border-radius: 5px;
-        border: 1px solid rgba(255,255,255,0.35);
-        background: #fff;
+        border: none;
         color: #0f172a;
-        font-family: inherit;
+        background: #fff;
       }
+      .tce-agency-input {
+        width: 100px;
+        max-width: 100px;
+        flex: 0 0 100px;
+      }
+      .tce-email-input {
+        width: 110px;
+        max-width: 110px;
+        flex: 0 0 110px;
+      }
+      .tce-opp-select {
+        width: 118px;
+        max-width: 118px;
+        flex: 0 0 118px;
+        cursor: pointer;
+      }
+      .tce-client-input,
+      .tce-agency-input,
+      .tce-email-input,
+      .tce-opp-select {
+        box-sizing: border-box;
+        border: none;
+        border-radius: 5px;
+        padding: 4px 6px;
+        font-size: 11px;
+        font-family: inherit;
+        color: #0f172a;
+        background: #fff;
+        min-width: 0;
+      }
+      .tce-client-input:focus,
+      .tce-agency-input:focus,
+      .tce-email-input:focus,
+      .tce-opp-select:focus,
       .tce-contact-phone-input:focus {
         outline: none;
-        border-color: #facc15;
-        box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.35);
+        box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.45);
       }
       .tce-contact-src {
         font-size: 9px;
@@ -3107,15 +3081,17 @@ export class CartSidebar {
       .tce-header-actions {
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: 4px;
         flex-shrink: 0;
-        margin-left: 0;
+        margin-left: auto;
       }
       .tce-hotel-options-toggle {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
+        gap: 3px;
         flex-shrink: 0;
+        font-size: 11px;
+        white-space: nowrap;
         padding: 3px 6px;
         border-radius: 5px;
         background: rgba(255,255,255,0.14);
@@ -6304,94 +6280,75 @@ export class CartSidebar {
       </button>
       <div class="tce-panel ${this.isOpen ? 'tce-panel--open' : ''}${wideClass}">
         <div class="tce-header">
-          <div class="tce-header-top">
-            <div class="tce-header-title">
-              <h2>Asistente de cotización</h2>
-              <span class="tce-header-meta">${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
-            </div>
-            <div class="tce-header-actions">
-              <button type="button" class="tce-open-panel" data-action="open-asistente"
-                title="Abrir panel en otra pestaña">↗</button>
-              <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
-            </div>
+          <div class="tce-header-title" title="Asistente de cotización">
+            <h2>Cotización</h2>
+            <span class="tce-header-meta">${this.items.length}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
           </div>
-          <div class="tce-header-fields">
-            <div class="tce-header-client">
-              <label for="tce-client-input">Contacto</label>
-              <div class="tce-contact-wrap">
-                <input
-                  id="tce-client-input"
-                  class="tce-client-input"
-                  type="text"
-                  maxlength="120"
-                  placeholder="Nombre…"
-                  autocomplete="off"
-                  value="${this.escape(this.clientName)}"
-                />
-                <input
-                  id="tce-contact-phone"
-                  class="tce-contact-phone-input"
-                  type="tel"
-                  maxlength="40"
-                  placeholder="Teléfono…"
-                  autocomplete="off"
-                  value="${this.escape(this.selectedContactPhone)}"
-                />
-                <div class="tce-contact-dd">${this.contactDropdownHtml()}</div>
-              </div>
-            </div>
-            <div class="tce-header-agency">
-              <label for="tce-agency-input">Agencia</label>
+          <div class="tce-header-client">
+            <div class="tce-contact-wrap">
               <input
-                id="tce-agency-input"
-                class="tce-agency-input"
+                id="tce-client-input"
+                class="tce-client-input"
                 type="text"
                 maxlength="120"
-                placeholder="Nombre en el PDF"
-                value="${this.escape(this.agencyName)}"
+                placeholder="Contacto"
+                title="Contacto"
+                autocomplete="off"
+                value="${this.escape(this.clientName)}"
               />
               <input
-                id="tce-email-input"
-                class="tce-email-input"
-                type="email"
-                maxlength="160"
-                placeholder="Email…"
+                id="tce-contact-phone"
+                class="tce-contact-phone-input"
+                type="tel"
+                maxlength="40"
+                placeholder="Teléfono"
+                title="Teléfono"
                 autocomplete="off"
-                value="${this.escape(this.clientEmail)}"
+                value="${this.escape(this.selectedContactPhone)}"
               />
+              <div class="tce-contact-dd">${this.contactDropdownHtml()}</div>
             </div>
-            <div class="tce-header-opp">
-              <label for="tce-opp-select">Oportunidad</label>
-              <select id="tce-opp-select" class="tce-opp-select" title="Vincular esta cotización a una oportunidad de venta">
-                <option value="">Sin vincular</option>
-                ${this.opportunityHits
-                  .map((o) => {
-                    const seq = o.sequence_number != null ? `#${o.sequence_number}` : '';
-                    const stage = (o.stage_name || o.stage_code || '').trim();
-                    const car = o.numero_car_ref ? ` · ${o.numero_car_ref}` : '';
-                    const label = `${seq} ${o.contact_name || ''} · ${stage}${car}`.replace(/\s+/g, ' ').trim();
-                    const sel = this.linkedOpportunity?.id === o.id ? 'selected' : '';
-                    return `<option value="${this.escape(o.id)}" ${sel}>${this.escape(label || o.id.slice(0, 8))}</option>`;
-                  })
-                  .join('')}
-              </select>
-              ${
-                this.linkedOpportunity &&
-                !this.opportunityHits.some((o) => o.id === this.linkedOpportunity!.id)
-                  ? `<span class="tce-header-meta" style="opacity:.9">Vinculada ${
-                      this.linkedOpportunity.sequence_number != null
-                        ? `#${this.linkedOpportunity.sequence_number}`
-                        : this.linkedOpportunity.id.slice(0, 8)
-                    }</span>`
-                  : this.selectedContactPhone.trim().length >= 7 && this.opportunityHits.length === 0
-                    ? `<span class="tce-header-meta" style="opacity:.75">Sin oportunidades para este teléfono</span>`
-                    : ''
-              }
-            </div>
-            <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
-              <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
-              Comparar
-            </label>
+          </div>
+          <input
+            id="tce-agency-input"
+            class="tce-agency-input"
+            type="text"
+            maxlength="120"
+            placeholder="Agencia"
+            title="Agencia (PDF)"
+            value="${this.escape(this.agencyName)}"
+          />
+          <input
+            id="tce-email-input"
+            class="tce-email-input"
+            type="email"
+            maxlength="160"
+            placeholder="Email"
+            title="Email"
+            autocomplete="off"
+            value="${this.escape(this.clientEmail)}"
+          />
+          <select id="tce-opp-select" class="tce-opp-select" title="Oportunidad de venta">
+            <option value="">Oportunidad</option>
+            ${this.opportunityHits
+              .map((o) => {
+                const seq = o.sequence_number != null ? `#${o.sequence_number}` : '';
+                const stage = (o.stage_name || o.stage_code || '').trim();
+                const car = o.numero_car_ref ? ` · ${o.numero_car_ref}` : '';
+                const label = `${seq} ${o.contact_name || ''} · ${stage}${car}`.replace(/\s+/g, ' ').trim();
+                const sel = this.linkedOpportunity?.id === o.id ? 'selected' : '';
+                return `<option value="${this.escape(o.id)}" ${sel}>${this.escape(label || o.id.slice(0, 8))}</option>`;
+              })
+              .join('')}
+          </select>
+          <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
+            <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
+            Comp.
+          </label>
+          <div class="tce-header-actions">
+            <button type="button" class="tce-open-panel" data-action="open-asistente"
+              title="Abrir panel en otra pestaña">↗</button>
+            <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
           </div>
         </div>
         <div class="tce-meta-bar">
