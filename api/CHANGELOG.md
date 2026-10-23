@@ -4,6 +4,12 @@ Más reciente arriba. Formato alineado con el carrito.
 
 ---
 
+## 2026-10-23 — Oportunidades CRM + totales con acomodación (v0.2.4)
+
+- **Added**: `GET /v1/oportunidades/search` y `GET /v1/oportunidades/board` (crm.deals + vínculo car_cotizacion).
+- **Added**: total monetario solo si el payload tiene acomodación (`quote_money.py`).
+- **Added**: email en hits de `/v1/contactos/search`.
+
 ## 2026-10-22 — Docs: carga remota / claves duales (extensión 1.1.64)
 
 - **Docs**: `REPORTE_ADMIN_APPS.md` — historial local vs servidor, `serverId` + `numero_car`, payload `history`.

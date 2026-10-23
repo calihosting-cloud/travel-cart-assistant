@@ -38,12 +38,14 @@ def _search_crm_contacts(db: Session, term: str, limit: int) -> list[ContactSear
           coalesce(nullif(trim(full_name), ''), nullif(trim(phone), ''), 'Sin nombre') AS nombre,
           nullif(trim(phone), '') AS telefono,
           phone_norm,
-          nullif(trim(company), '') AS agencia
+          nullif(trim(company), '') AS agencia,
+          nullif(trim(email), '') AS email
         FROM (
           SELECT
             c.id,
             c.full_name,
             c.phone,
+            c.email,
             c.company,
             c.updated_at,
             regexp_replace(coalesce(c.phone, ''), '\\D', '', 'g') AS phone_norm,
@@ -87,12 +89,13 @@ def _search_crm_contacts(db: Session, term: str, limit: int) -> list[ContactSear
 
     hits: list[ContactSearchHit] = []
     for row in rows:
-        cid, nombre, telefono, phone_norm, agencia = (
+        cid, nombre, telefono, phone_norm, agencia, email = (
             row[0],
             row[1],
             row[2],
             row[3],
             row[4],
+            row[5] if len(row) > 5 else None,
         )
         phone = phone_norm or normalize_phone(telefono) or telefono
         hits.append(
@@ -104,6 +107,7 @@ def _search_crm_contacts(db: Session, term: str, limit: int) -> list[ContactSear
                 telefono=phone,
                 telefono_norm=normalize_phone(phone) if phone else None,
                 agencia=(agencia or None),
+                email=(email or None),
             )
         )
     return hits

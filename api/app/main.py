@@ -23,7 +23,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import __version__
 from .config import get_settings
 from .db import get_db
-from .routers import admin, agencias, asesores, contactos, cotizaciones
+from .routers import admin, agencias, asesores, contactos, cotizaciones, oportunidades
 from .schemas import HealthOut
 from .security import require_api_token
 
@@ -75,6 +75,7 @@ app.include_router(contactos.router)
 app.include_router(asesores.router)
 app.include_router(agencias.router)
 app.include_router(cotizaciones.router)
+app.include_router(oportunidades.router)
 
 
 @app.get("/health", response_model=HealthOut, tags=["system"])

@@ -35,7 +35,12 @@ import {
   loadAdvisorName,
   loadAgencyName,
   loadClientName,
+  loadClientEmail,
+  loadLinkedOpportunity,
   loadInitialDeposit,
+  saveClientEmail,
+  saveLinkedOpportunity,
+  type LinkedOpportunity,
   loadPdfInsuranceAnnex,
   loadOccupancyTotalOpen,
   loadCommissionApproxOpen,
@@ -216,6 +221,8 @@ import {
   loadCrmUserEmail,
   loadCrmUserId,
   searchContactosMerged,
+  searchOportunidades,
+  type OportunidadHit,
   upsertCotizacion,
 } from '../shared/carApi';
 import {
@@ -324,6 +331,10 @@ export class CartSidebar {
   private initialDeposit = '';
   private pdfInsuranceAnnex = true;
   private agencyName = '';
+  private clientEmail = '';
+  private linkedOpportunity: LinkedOpportunity | null = null;
+  private opportunityHits: OportunidadHit[] = [];
+  private opportunitySearchOpen = false;
   private includeUsdEquiv = false;
   private showTrmInQuote = false;
   private hotelsAsOptions = false;
@@ -378,6 +389,7 @@ export class CartSidebar {
   private selectedContactId: number | null = null;
   private selectedContactPhone = '';
   private selectedCrmContactId: string | null = null;
+  private opportunityLoadTimer: number | null = null;
   private selectedAsesorId: number | null = null;
   /** Cotizaciones en servidor (car_cotizacion). */
   private remoteQuotes: CarCotizacion[] = [];
@@ -421,7 +433,12 @@ export class CartSidebar {
     this.commissionApproxKind = await loadCommissionApproxKind();
     this.accommodationConfirmed = await loadAccommodationConfirmed();
     this.agencyName = await loadAgencyName();
+    this.clientEmail = await loadClientEmail();
+    this.linkedOpportunity = await loadLinkedOpportunity();
     this.includeUsdEquiv = await loadIncludeUsdEquiv();
+    if (this.selectedContactPhone || this.clientName) {
+      void this.refreshOpportunityHits();
+    }
     this.showTrmInQuote = await loadShowTrmInQuote();
     this.autoRoundOccupancy = await loadAutoRoundOccupancy();
     this.manualPackageRoundIds = await loadManualPackageRoundIds();
@@ -1015,7 +1032,12 @@ export class CartSidebar {
     this.activeServerId = null;
     this.activeServerNumeroCar = null;
     this.clientName = '';
+    this.clientEmail = '';
+    this.linkedOpportunity = null;
+    this.opportunityHits = [];
     this.initialDeposit = '';
+    void saveClientEmail('');
+    void saveLinkedOpportunity(null);
     this.hotelOptionGroups = [];
     this.occupancyTotalOpen = false;
     this.commissionApproxOpen = false;
@@ -1189,6 +1211,8 @@ export class CartSidebar {
       contacto_nombre: this.clientName || entry.clientName || undefined,
       contacto_telefono: this.selectedContactPhone || undefined,
       contacto_id: this.selectedContactId || undefined,
+      oportunidad_crm_id: this.linkedOpportunity?.id || undefined,
+      oportunidad_seq: this.linkedOpportunity?.sequence_number ?? undefined,
       payload_json: {
         version: 1,
         reason,
@@ -1337,8 +1361,64 @@ export class CartSidebar {
       this.agencyName = agencia;
       void saveAgencyName(this.agencyName);
     }
+    const email = (hit.email || '').trim();
+    if (email) {
+      this.clientEmail = email;
+      void saveClientEmail(this.clientEmail);
+    }
     this.contactSearchOpen = false;
     this.contactHits = [];
+    void this.refreshOpportunityHits();
+    this.render();
+  }
+
+  private scheduleOpportunityRefresh(): void {
+    if (this.opportunityLoadTimer) window.clearTimeout(this.opportunityLoadTimer);
+    this.opportunityLoadTimer = window.setTimeout(() => {
+      this.opportunityLoadTimer = null;
+      void this.refreshOpportunityHits();
+    }, 320);
+  }
+
+  private async refreshOpportunityHits(): Promise<void> {
+    if (!(await carApiConfigured())) {
+      this.opportunityHits = [];
+      return;
+    }
+    const phone = this.selectedContactPhone.trim();
+    const crmId = this.selectedCrmContactId || '';
+    if (phone.length < 7 && !crmId) {
+      this.opportunityHits = [];
+      if (this.panelTab === 'items' || this.isOpen) this.render();
+      return;
+    }
+    const res = await searchOportunidades({
+      phone: phone || undefined,
+      crm_contact_id: crmId || undefined,
+      limit: 15,
+    });
+    this.opportunityHits = res.ok ? res.data.items || [] : [];
+    if (this.isOpen) this.render();
+  }
+
+  private pickOpportunity(id: string): void {
+    if (!id) {
+      this.linkedOpportunity = null;
+      void saveLinkedOpportunity(null);
+      this.opportunitySearchOpen = false;
+      this.render();
+      return;
+    }
+    const hit = this.opportunityHits.find((o) => o.id === id);
+    if (!hit) return;
+    this.linkedOpportunity = {
+      id: hit.id,
+      sequence_number: hit.sequence_number,
+      stage_name: hit.stage_name,
+      contact_name: hit.contact_name,
+    };
+    void saveLinkedOpportunity(this.linkedOpportunity);
+    this.opportunitySearchOpen = false;
     this.render();
   }
 
@@ -2769,11 +2849,12 @@ export class CartSidebar {
         min-width: 0;
         flex: 0 1 auto;
         overflow: hidden;
-        padding-top: 4px;
+        padding-top: 0;
+        margin-top: -2px;
       }
       .tce-header h2 {
         margin: 0;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         white-space: nowrap;
         flex-shrink: 0;
@@ -2799,8 +2880,17 @@ export class CartSidebar {
         flex-direction: column;
         align-items: stretch;
         gap: 4px;
-        flex: 1 1 180px;
-        min-width: 140px;
+        flex: 1 1 160px;
+        min-width: 130px;
+        max-width: 240px;
+      }
+      .tce-header-opp {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        flex: 1 1 200px;
+        min-width: 160px;
         max-width: 280px;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-client {
@@ -2809,25 +2899,44 @@ export class CartSidebar {
         order: 3;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-agency {
-        flex: 1 1 calc(100% - 72px);
+        flex: 1 1 calc(50% - 40px);
         max-width: none;
         order: 4;
+      }
+      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-opp {
+        flex: 1 1 calc(50% - 40px);
+        max-width: none;
+        order: 5;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-actions {
         order: 2;
         margin-left: auto;
       }
       .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-hotel-options-toggle {
-        order: 5;
+        order: 6;
       }
       .tce-header-client label,
-      .tce-header-agency label {
+      .tce-header-agency label,
+      .tce-header-opp label {
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.3px;
         opacity: 0.9;
         flex-shrink: 0;
       }
+      .tce-email-input,
+      .tce-opp-select {
+        width: 100%;
+        box-sizing: border-box;
+        border: none;
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 12px;
+        font-family: inherit;
+        color: #0f172a;
+        background: #fff;
+      }
+      .tce-opp-select { cursor: pointer; }
       .tce-contact-wrap {
         position: relative;
         width: 100%;
@@ -6240,6 +6349,43 @@ export class CartSidebar {
               placeholder="Nombre en el PDF"
               value="${this.escape(this.agencyName)}"
             />
+            <input
+              id="tce-email-input"
+              class="tce-email-input"
+              type="email"
+              maxlength="160"
+              placeholder="Email…"
+              autocomplete="off"
+              value="${this.escape(this.clientEmail)}"
+            />
+          </div>
+          <div class="tce-header-opp">
+            <label for="tce-opp-select">Oportunidad</label>
+            <select id="tce-opp-select" class="tce-opp-select" title="Vincular esta cotización a una oportunidad de venta">
+              <option value="">Sin vincular</option>
+              ${this.opportunityHits
+                .map((o) => {
+                  const seq = o.sequence_number != null ? `#${o.sequence_number}` : '';
+                  const stage = (o.stage_name || o.stage_code || '').trim();
+                  const car = o.numero_car_ref ? ` · ${o.numero_car_ref}` : '';
+                  const label = `${seq} ${o.contact_name || ''} · ${stage}${car}`.replace(/\s+/g, ' ').trim();
+                  const sel = this.linkedOpportunity?.id === o.id ? 'selected' : '';
+                  return `<option value="${this.escape(o.id)}" ${sel}>${this.escape(label || o.id.slice(0, 8))}</option>`;
+                })
+                .join('')}
+            </select>
+            ${
+              this.linkedOpportunity &&
+              !this.opportunityHits.some((o) => o.id === this.linkedOpportunity!.id)
+                ? `<span class="tce-header-meta" style="opacity:.9">Vinculada ${
+                    this.linkedOpportunity.sequence_number != null
+                      ? `#${this.linkedOpportunity.sequence_number}`
+                      : this.linkedOpportunity.id.slice(0, 8)
+                  }</span>`
+                : this.selectedContactPhone.trim().length >= 7 && this.opportunityHits.length === 0
+                  ? `<span class="tce-header-meta" style="opacity:.75">Sin oportunidades para este teléfono</span>`
+                  : ''
+            }
           </div>
           <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
             <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
@@ -8073,6 +8219,11 @@ export class CartSidebar {
         return;
       }
 
+      if (target.classList.contains('tce-opp-select')) {
+        this.pickOpportunity((target as HTMLSelectElement).value);
+        return;
+      }
+
       if (!target.classList.contains('tce-quote-check')) return;
       const input = target as HTMLInputElement;
       const lineId = input.dataset.lineId;
@@ -8106,6 +8257,13 @@ export class CartSidebar {
           ? this.selectedContactPhone
           : this.clientName;
         this.scheduleContactSearch(q);
+        this.scheduleOpportunityRefresh();
+        return;
+      }
+
+      if (target.classList.contains('tce-email-input')) {
+        this.clientEmail = (target as HTMLInputElement).value;
+        void saveClientEmail(this.clientEmail);
         return;
       }
 

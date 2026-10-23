@@ -1,6 +1,16 @@
 /** Chat Center CRM — oportunidades de venta (Grupos Travel). */
 
-import { formatQuoteRef, loadPendingQuoteNumber, peekNextQuoteNumber } from './quoteHistory';
+import {
+  carApiConfigured,
+  listBoardQuotes,
+  type BoardQuoteLabel,
+} from './carApi';
+import {
+  formatQuoteRef,
+  loadHistory,
+  loadPendingQuoteNumber,
+  peekNextQuoteNumber,
+} from './quoteHistory';
 
 export const CHAT_CENTER_ORIGIN = 'https://chatcrm.grupostravel.com';
 export const CHAT_CENTER_OPORTUNIDADES_URL = `${CHAT_CENTER_ORIGIN}/oportunidades`;
@@ -12,6 +22,10 @@ export const ISABELA_BACKOFFICE_URL = 'https://reservas.grupostravel.com/es/back
 
 export const OPEN_ISABELA_BTN_CLASS = 'tce-open-isabela';
 export const CAR_QUOTE_REF_CLASS = 'tce-car-quote-ref';
+export const OP_CARD_QUOTE_LABEL_CLASS = 'tce-op-card-quote';
+export const OP_COLUMN_TOTAL_CLASS = 'tce-op-col-total';
+export const OP_KPI_TOTAL_CLASS = 'tce-op-kpi-total';
+export const OP_MODAL_AMOUNT_CLASS = 'tce-op-modal-amount';
 
 /** Soft fuchsia for Abrir Isabela buttons. */
 const ISABELA_BTN_BG = '#e879a9';
@@ -243,26 +257,75 @@ function injectIsabelaOnOpportunityBadges(doc: Document): void {
   }
 }
 
-/** Show local CAR quote ref next to modal title (until car_* DB is wired). */
+function formatMoneyLabel(amount: number, currency: string): string {
+  const cur = (currency || 'COP').toUpperCase();
+  try {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: cur === 'USD' ? 'USD' : 'COP',
+      maximumFractionDigits: cur === 'USD' ? 2 : 0,
+    }).format(amount);
+  } catch {
+    return `${Math.round(amount).toLocaleString('es-CO')} ${cur}`;
+  }
+}
+
+function digitsOnly(s: string): string {
+  return (s || '').replace(/\D/g, '');
+}
+
+async function resolveActiveQuoteLabel(): Promise<{
+  ref: string;
+  amountText: string | null;
+} | null> {
+  let n = await loadPendingQuoteNumber();
+  if (!n || n < 1) n = await peekNextQuoteNumber();
+  if (!n || n < 1) return null;
+  const history = await loadHistory();
+  const entry = history.find((h) => h.quoteNumber === n);
+  let amountText: string | null = null;
+  if (entry) {
+    const hasAcc =
+      Boolean(entry.searchContext?.roomPlan && entry.searchContext.roomPlan.length > 0) ||
+      Boolean(entry.hotelOptionGroups && entry.hotelOptionGroups.length > 0) ||
+      entry.items.some(
+        (it) =>
+          it.type === 'hotel' &&
+          ((it as { occupancyRates?: unknown }).occupancyRates ||
+            (Array.isArray((it as { occupancy?: unknown[] }).occupancy) &&
+              ((it as { occupancy?: unknown[] }).occupancy?.length || 0) > 0))
+      );
+    if (hasAcc && typeof entry.grandTotal === 'number' && entry.grandTotal > 0) {
+      amountText = formatMoneyLabel(
+        entry.grandTotal,
+        entry.displayCurrency || entry.primaryCurrency || 'COP'
+      );
+    }
+  }
+  return { ref: formatQuoteRef(n), amountText };
+}
+
+/** CAR# to the right of “Oportunidad de venta #N” / “Cotización #N”; amount below if any. */
 async function injectCarQuoteRefNearTitle(modal: Element, doc: Document): Promise<void> {
-  if (modal.querySelector(`.${CAR_QUOTE_REF_CLASS}`)) return;
+  if (modal.querySelector(`.${CAR_QUOTE_REF_CLASS}`)) {
+    // refresh amount under stage if needed
+    return;
+  }
   const title = findOpportunityTitle(modal);
   if (!title?.parentElement) return;
 
-  let n = await loadPendingQuoteNumber();
-  if (!n || n < 1) n = await peekNextQuoteNumber();
-  if (!n || n < 1) return;
+  const active = await resolveActiveQuoteLabel();
+  if (!active) return;
 
-  const ref = formatQuoteRef(n);
   const span = doc.createElement('span');
   span.className = CAR_QUOTE_REF_CLASS;
-  span.textContent = ref;
-  span.title = 'Nº de cotización del carrito (local; luego se guardará en car_*)';
+  span.textContent = active.ref;
+  span.title = 'Nº de cotización del carrito (local / car_cotizacion)';
   span.style.cssText = [
     'display:inline-flex',
     'align-items:center',
-    'margin-left:8px',
-    'padding:2px 8px',
+    'margin-left:auto',
+    'padding:3px 10px',
     'border-radius:99px',
     'background:#fdf2f8',
     'border:1px solid #fbcfe8',
@@ -270,15 +333,203 @@ async function injectCarQuoteRefNearTitle(modal: Element, doc: Document): Promis
     'font-size:12px',
     'font-weight:700',
     'white-space:nowrap',
-    'vertical-align:middle',
+    'flex-shrink:0',
   ].join(';');
 
   const row = doc.createElement('div');
   row.className = 'tce-op-title-row';
-  row.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;';
+  row.style.cssText =
+    'display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-width:0;width:100%;';
   title.parentElement.insertBefore(row, title);
   row.appendChild(title);
   row.appendChild(span);
+
+  if (active.amountText && !modal.querySelector(`.${OP_MODAL_AMOUNT_CLASS}`)) {
+    const amount = doc.createElement('div');
+    amount.className = OP_MODAL_AMOUNT_CLASS;
+    amount.textContent = active.amountText;
+    amount.title = 'Total de cotización (con acomodación)';
+    amount.style.cssText = [
+      'margin-top:6px',
+      'font-size:20px',
+      'font-weight:800',
+      'color:#1a1a2e',
+      'letter-spacing:-0.02em',
+      'line-height:1.2',
+    ].join(';');
+    row.parentElement?.insertBefore(amount, row.nextSibling);
+  }
+}
+
+function matchBoardLabel(
+  labels: BoardQuoteLabel[],
+  phone: string,
+  seq: number | null
+): BoardQuoteLabel | undefined {
+  const phoneDig = digitsOnly(phone);
+  const phoneHits = labels.filter((l) => {
+    const lp = digitsOnly(l.contact_phone || '');
+    if (!phoneDig || !lp) return false;
+    return phoneDig.endsWith(lp) || lp.endsWith(phoneDig) || phoneDig.includes(lp) || lp.includes(phoneDig);
+  });
+  if (seq != null) {
+    const bySeq = phoneHits.find((l) => l.sequence_number === seq) ||
+      labels.find((l) => l.sequence_number === seq && (!phoneDig || digitsOnly(l.contact_phone || '').includes(phoneDig.slice(-8))));
+    if (bySeq) return bySeq;
+  }
+  return phoneHits.find((l) => l.numero_car_ref) || phoneHits[0];
+}
+
+function makeCardQuoteLabel(doc: Document, label: BoardQuoteLabel): HTMLElement {
+  const wrap = doc.createElement('div');
+  wrap.className = OP_CARD_QUOTE_LABEL_CLASS;
+  wrap.style.cssText =
+    'display:flex;flex-direction:column;align-items:flex-end;gap:2px;margin-left:auto;text-align:right;';
+  const ref = doc.createElement('span');
+  ref.style.cssText =
+    'font-size:11px;font-weight:800;color:#9d174d;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:99px;padding:2px 8px;white-space:nowrap;';
+  const car = label.numero_car_ref || (label.numero_car ? formatQuoteRef(label.numero_car) : '');
+  ref.textContent = car ? `Cotización N.° ${car.replace(/^CAR/i, '')}` : 'Sin CAR';
+  if (!car) ref.style.opacity = '0.55';
+  wrap.appendChild(ref);
+  if (
+    label.has_accommodation &&
+    typeof label.quote_total === 'number' &&
+    label.quote_total > 0
+  ) {
+    const amt = doc.createElement('span');
+    amt.style.cssText = 'font-size:13px;font-weight:800;color:#1a1a2e;line-height:1.15;';
+    amt.textContent = formatMoneyLabel(label.quote_total, label.quote_currency || 'COP');
+    wrap.appendChild(amt);
+  }
+  return wrap;
+}
+
+/** Per-card label + column totals + KPI “Cotización Enviada” total. */
+async function injectBoardQuoteLabels(doc: Document): Promise<void> {
+  if (!/\/oportunidades/i.test(location.pathname || '')) return;
+  if (!(await carApiConfigured())) return;
+
+  const res = await listBoardQuotes(250);
+  if (!res.ok || !res.data.items.length) return;
+  const labels = res.data.items;
+
+  const cards = Array.from(doc.querySelectorAll('.op-card')) as HTMLElement[];
+  const columnSums = new Map<string, { total: number; currency: string; count: number }>();
+
+  for (const card of cards) {
+    if (card.querySelector(`.${OP_CARD_QUOTE_LABEL_CLASS}`)) continue;
+    const text = (card.textContent || '').replace(/\s+/g, ' ');
+    const seqMatch = text.match(/Cotizaci[oó]n\s*#\s*(\d+)/i);
+    const seq = seqMatch ? Number(seqMatch[1]) : null;
+    const phoneEl = Array.from(card.querySelectorAll('div')).find((el) => {
+      const t = (el.textContent || '').trim();
+      return /^\d{8,15}$/.test(t) && el.children.length === 0;
+    });
+    const phone = phoneEl ? phoneEl.textContent!.trim() : '';
+    const label = matchBoardLabel(labels, phone, Number.isFinite(seq) ? seq : null);
+    if (!label?.numero_car_ref && !label?.numero_car) continue;
+
+    const header = card.firstElementChild as HTMLElement | null;
+    if (header && /justify-content:\s*space-between/i.test(header.getAttribute('style') || '')) {
+      header.appendChild(makeCardQuoteLabel(doc, label));
+    } else {
+      const row = doc.createElement('div');
+      row.style.cssText =
+        'display:flex;align-items:flex-start;justify-content:flex-end;margin-bottom:6px;';
+      row.appendChild(makeCardQuoteLabel(doc, label));
+      card.insertBefore(row, card.firstChild);
+    }
+
+    const stage =
+      label.stage_code ||
+      (card.closest('[style*="min-height"]')?.querySelector('span')?.textContent || '');
+    // Sum by nearest column title text
+    const col = card.parentElement?.parentElement;
+    const colTitle =
+      col?.querySelector('span[style*="font-weight: 700"], span[style*="font-weight:700"]')
+        ?.textContent ||
+      col?.firstElementChild?.textContent ||
+      '';
+    const key = (colTitle || String(stage)).replace(/\s+/g, ' ').trim();
+    if (
+      label.has_accommodation &&
+      typeof label.quote_total === 'number' &&
+      label.quote_total > 0
+    ) {
+      const cur = (label.quote_currency || 'COP').toUpperCase();
+      const prev = columnSums.get(key) || { total: 0, currency: cur, count: 0 };
+      // Only sum same currency; prefer COP if mixed
+      if (prev.count === 0 || prev.currency === cur) {
+        columnSums.set(key, {
+          total: prev.total + label.quote_total,
+          currency: cur,
+          count: prev.count + 1,
+        });
+      }
+    }
+  }
+
+  // Column header: amount to the right of the count badge
+  const colRoots = Array.from(
+    doc.querySelectorAll('main div[style*="min-height"]')
+  ) as HTMLElement[];
+  for (const col of colRoots) {
+    if (col.querySelector(`.${OP_COLUMN_TOTAL_CLASS}`)) continue;
+    const head = col.firstElementChild as HTMLElement | null;
+    if (!head) continue;
+    const title = (head.textContent || '').replace(/\s+/g, ' ').trim();
+    let sum = columnSums.get(title);
+    if (!sum) {
+      for (const [k, v] of columnSums) {
+        if (title.includes(k.slice(0, 12)) || k.includes(title.slice(0, 12))) {
+          sum = v;
+          break;
+        }
+      }
+    }
+    if (!sum || sum.count < 1) continue;
+    const badge = Array.from(head.querySelectorAll('span')).find((s) =>
+      /^\d+$/.test((s.textContent || '').trim())
+    );
+    const el = doc.createElement('span');
+    el.className = OP_COLUMN_TOTAL_CLASS;
+    el.textContent = formatMoneyLabel(sum.total, sum.currency);
+    el.title = 'Suma de cotizaciones con acomodación en esta columna';
+    el.style.cssText =
+      'margin-left:8px;font-size:12px;font-weight:800;color:#1a1a2e;white-space:nowrap;';
+    if (badge?.parentElement) badge.parentElement.insertBefore(el, badge.nextSibling);
+    else head.appendChild(el);
+  }
+
+  // Top KPI cards: under “Cotización Enviada”, large total
+  const kpiCards = Array.from(
+    doc.querySelectorAll('main > div > div[style*="grid-template-columns"] > div')
+  ) as HTMLElement[];
+  for (const kpi of kpiCards) {
+    if (kpi.querySelector(`.${OP_KPI_TOTAL_CLASS}`)) continue;
+    const labelText = (kpi.textContent || '').replace(/\s+/g, ' ');
+    if (!/Cotizaci[oó]n\s+Enviada/i.test(labelText)) continue;
+    let enviadaSum = 0;
+    let currency = 'COP';
+    for (const l of labels) {
+      if (l.stage_code !== 'cotizacion_enviada') continue;
+      if (!l.has_accommodation || !(typeof l.quote_total === 'number') || l.quote_total <= 0) {
+        continue;
+      }
+      const cur = (l.quote_currency || 'COP').toUpperCase();
+      if (enviadaSum === 0) currency = cur;
+      if (cur === currency) enviadaSum += l.quote_total;
+    }
+    if (enviadaSum <= 0) continue;
+    const amount = doc.createElement('div');
+    amount.className = OP_KPI_TOTAL_CLASS;
+    amount.textContent = formatMoneyLabel(enviadaSum, currency);
+    amount.style.cssText =
+      'margin-top:4px;font-size:18px;font-weight:800;color:#1a1a2e;letter-spacing:-0.02em;';
+    const valueBox = kpi.querySelector('div[style*="min-width"]') || kpi;
+    valueBox.appendChild(amount);
+  }
 }
 
 /**
@@ -354,4 +605,5 @@ export function injectOpenIsabelaButton(doc: Document = document): void {
   injectIsabelaOnOpportunityBadges(doc);
   injectIsabelaInChatHeader(doc);
   injectIsabelaInOpportunityModal(doc);
+  void injectBoardQuoteLabels(doc);
 }

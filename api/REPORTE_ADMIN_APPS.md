@@ -1,8 +1,8 @@
 # Carrito GT API — Reporte para administradores y creadores de apps
 
 **Fecha:** 2026-10-22  
-**Versión API:** `0.2.3`  
-**Extensión (cliente):** `1.1.64`  
+**Versión API:** `0.2.4`  
+**Extensión (cliente):** `1.1.65`  
 **Schema SQL:** `0.1.0` (`car_schema_meta.version`)  
 **Runtime:** Python 3.10 · FastAPI · Postgres (misma BD del Chat Center)  
 **Base URL producción:** `https://chatcrm.grupostravel.com/car-api`  
@@ -261,7 +261,18 @@ Todas las rutas de abajo asumen prefijo de despliegue `/car-api` en producción
 
 **Create — body:** `{ "nombre": "...", "nit": null, "activo": true }`
 
-### 4.5 Cotizaciones — `/v1/cotizaciones`
+### 4.5 Oportunidades — `/v1/oportunidades` (v0.2.4)
+
+Lectura de `crm.deals` (+ `deals_quote_requests` / `deal_stages`), con vínculo opcional a `car_cotizacion`.
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/v1/oportunidades/search?phone=&crm_contact_id=&q=&limit=` | Oportunidades del contacto |
+| GET | `/v1/oportunidades/board?limit=` | Tablero kanban: deals + labels CAR/total |
+
+`quote_total` / `quote_currency` solo si el payload de la cotización tiene **acomodación** (room plan / occupancy / opciones hotel).
+
+### 4.6 Cotizaciones — `/v1/cotizaciones`
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
@@ -292,7 +303,7 @@ Todas las rutas de abajo asumen prefijo de despliegue `/car-api` en producción
 
 Si `numero_car` ya existe, se actualizan campos y `payload_json` (idempotente para reenvíos del carrito).
 
-### 4.6 Admin (HTML, no OpenAPI)
+### 4.7 Admin (HTML, no OpenAPI)
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|

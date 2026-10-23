@@ -10,6 +10,8 @@ export const QUOTE_SEQ_KEY = 'tce_quote_seq';
 export const PENDING_QUOTE_KEY = 'tce_pending_quote';
 export const ADVISOR_KEY = 'tce_advisor_name';
 export const CLIENT_KEY = 'tce_client_name';
+export const CLIENT_EMAIL_KEY = 'tce_client_email';
+export const LINKED_OPPORTUNITY_KEY = 'tce_linked_opportunity';
 export const INITIAL_DEPOSIT_KEY = 'tce_initial_deposit';
 /** When false, PDF omits the insurance coverage annex. Default true. */
 export const PDF_INSURANCE_ANNEX_KEY = 'tce_pdf_insurance_annex';
@@ -213,6 +215,53 @@ export async function loadClientName(): Promise<string> {
 export async function saveClientName(name: string): Promise<void> {
   try {
     await chrome.storage.local.set({ [CLIENT_KEY]: name });
+  } catch {
+    // ignore
+  }
+}
+
+export async function loadClientEmail(): Promise<string> {
+  try {
+    const result = await chrome.storage.local.get(CLIENT_EMAIL_KEY);
+    const v = result[CLIENT_EMAIL_KEY];
+    return typeof v === 'string' ? v : '';
+  } catch {
+    return '';
+  }
+}
+
+export async function saveClientEmail(email: string): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [CLIENT_EMAIL_KEY]: email.trim() });
+  } catch {
+    // ignore
+  }
+}
+
+export interface LinkedOpportunity {
+  id: string;
+  sequence_number?: number | null;
+  stage_name?: string | null;
+  contact_name?: string | null;
+}
+
+export async function loadLinkedOpportunity(): Promise<LinkedOpportunity | null> {
+  try {
+    const result = await chrome.storage.local.get(LINKED_OPPORTUNITY_KEY);
+    const v = result[LINKED_OPPORTUNITY_KEY];
+    if (v && typeof v === 'object' && typeof (v as LinkedOpportunity).id === 'string') {
+      return v as LinkedOpportunity;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export async function saveLinkedOpportunity(op: LinkedOpportunity | null): Promise<void> {
+  try {
+    if (!op) await chrome.storage.local.remove(LINKED_OPPORTUNITY_KEY);
+    else await chrome.storage.local.set({ [LINKED_OPPORTUNITY_KEY]: op });
   } catch {
     // ignore
   }

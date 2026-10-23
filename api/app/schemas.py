@@ -49,6 +49,7 @@ class ContactSearchHit(BaseModel):
     telefono: Optional[str] = None
     telefono_norm: Optional[str] = None
     agencia: Optional[str] = None
+    email: Optional[str] = None
 
 
 class ContactSearchOut(BaseModel):
@@ -145,4 +146,45 @@ class CotizacionOut(BaseModel):
 
 class CotizacionListOut(BaseModel):
     items: List[CotizacionOut]
+    total: int
+
+
+class OportunidadHit(BaseModel):
+    id: str
+    sequence_number: Optional[int] = None
+    stage_code: Optional[str] = None
+    stage_name: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # Linked carrito quote (if any)
+    numero_car: Optional[int] = None
+    numero_car_ref: Optional[str] = None
+    car_cotizacion_id: Optional[int] = None
+    quote_total: Optional[float] = None
+    quote_currency: Optional[str] = None
+    has_accommodation: bool = False
+
+
+class OportunidadSearchOut(BaseModel):
+    items: List[OportunidadHit]
+    total: int
+
+
+class BoardQuoteLabel(BaseModel):
+    """Label to show on an opportunity card / column."""
+
+    deal_id: str
+    sequence_number: Optional[int] = None
+    contact_phone: Optional[str] = None
+    stage_code: Optional[str] = None
+    numero_car: Optional[int] = None
+    numero_car_ref: Optional[str] = None
+    quote_total: Optional[float] = None
+    quote_currency: Optional[str] = None
+    has_accommodation: bool = False
+
+
+class BoardQuotesOut(BaseModel):
+    items: List[BoardQuoteLabel]
     total: int

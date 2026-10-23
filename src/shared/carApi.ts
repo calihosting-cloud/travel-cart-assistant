@@ -37,6 +37,35 @@ export interface ContactSearchHit {
   telefono_norm?: string | null;
   /** Agencia / company del CRM (crm.contacts.company), si existe */
   agencia?: string | null;
+  email?: string | null;
+}
+
+export interface OportunidadHit {
+  id: string;
+  sequence_number?: number | null;
+  stage_code?: string | null;
+  stage_name?: string | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  created_at?: string | null;
+  numero_car?: number | null;
+  numero_car_ref?: string | null;
+  car_cotizacion_id?: number | null;
+  quote_total?: number | null;
+  quote_currency?: string | null;
+  has_accommodation?: boolean;
+}
+
+export interface BoardQuoteLabel {
+  deal_id: string;
+  sequence_number?: number | null;
+  contact_phone?: string | null;
+  stage_code?: string | null;
+  numero_car?: number | null;
+  numero_car_ref?: string | null;
+  quote_total?: number | null;
+  quote_currency?: string | null;
+  has_accommodation?: boolean;
 }
 
 export interface CarCotizacion {
@@ -241,6 +270,32 @@ export async function upsertCotizacion(body: {
   origen?: string;
 }): Promise<CarApiResult<CarCotizacion>> {
   return carApiRequest({ method: 'POST', path: '/v1/cotizaciones', body });
+}
+
+export async function searchOportunidades(opts: {
+  phone?: string;
+  crm_contact_id?: string;
+  q?: string;
+  limit?: number;
+}): Promise<CarApiResult<{ items: OportunidadHit[]; total: number }>> {
+  return carApiRequest({
+    path: '/v1/oportunidades/search',
+    query: {
+      phone: opts.phone,
+      crm_contact_id: opts.crm_contact_id,
+      q: opts.q,
+      limit: opts.limit ?? 20,
+    },
+  });
+}
+
+export async function listBoardQuotes(
+  limit = 200
+): Promise<CarApiResult<{ items: BoardQuoteLabel[]; total: number }>> {
+  return carApiRequest({
+    path: '/v1/oportunidades/board',
+    query: { limit },
+  });
 }
 
 export async function listAsesores(): Promise<CarApiResult<CarAsesor[]>> {

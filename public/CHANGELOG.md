@@ -12,6 +12,14 @@ Formato por entrada:
 
 ---
 
+## 2026-10-23 — Oportunidades + labels CAR en Chat Center (v1.1.65 / API 0.2.4)
+
+- **Added**: header con email, agencia y selector de **oportunidad de venta** (API por teléfono / CRM id).
+- **Added**: API `GET /v1/oportunidades/search` y `/board`; total solo si hay acomodación.
+- **Added**: en tablero Oportunidades: label «Cotización N.° …» + valor en cada card; suma por columna; total grande bajo KPI Cotización Enviada.
+- **Changed**: CAR# a la derecha del título de la oportunidad; valor debajo si hay total con acomodación.
+- **Changed**: al guardar cotización se envían `oportunidad_crm_id` / `oportunidad_seq`.
+
 ## 2026-10-22 — Cargar cotizaciones del servidor (v1.1.64)
 
 - **Added**: en Historial, lista del servidor con botón **Cargar** (`car_cotizacion` → carrito).
