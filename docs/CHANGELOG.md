@@ -12,6 +12,10 @@ Formato por entrada:
 
 ---
 
+## 2026-10-23 — Header del asistente alineado a la izquierda (v1.1.66)
+
+- **Changed**: Contacto / Agencia / Oportunidad quedan en una fila bajo el título, pegados a la izquierda (sin hueco grande).
+
 ## 2026-10-23 — Oportunidades + labels CAR en Chat Center (v1.1.65 / API 0.2.4)
 
 - **Added**: header con email, agencia y selector de **oportunidad de venta** (API por teléfono / CRM id).

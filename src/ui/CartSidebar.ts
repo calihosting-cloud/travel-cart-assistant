@@ -2832,14 +2832,28 @@ export class CartSidebar {
 
       .tce-header {
         display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        padding: 10px 14px;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 8px 12px 10px;
         background: #1e40af;
         color: #fff;
         flex-shrink: 0;
-        gap: 10px 12px;
+        gap: 8px;
+      }
+      .tce-header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-width: 0;
+      }
+      .tce-header-fields {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: flex-start;
+        gap: 8px 10px;
+        width: 100%;
       }
       .tce-header-title {
         display: flex;
@@ -2847,10 +2861,8 @@ export class CartSidebar {
         flex-wrap: nowrap;
         gap: 5px;
         min-width: 0;
-        flex: 0 1 auto;
+        flex: 1 1 auto;
         overflow: hidden;
-        padding-top: 0;
-        margin-top: -2px;
       }
       .tce-header h2 {
         margin: 0;
@@ -2870,50 +2882,32 @@ export class CartSidebar {
         display: flex;
         flex-direction: column;
         align-items: stretch;
-        gap: 4px;
-        flex: 1 1 320px;
-        min-width: 220px;
-        max-width: 480px;
+        gap: 3px;
+        flex: 0 1 280px;
+        min-width: 180px;
+        max-width: 340px;
       }
       .tce-header-agency {
         display: flex;
         flex-direction: column;
         align-items: stretch;
-        gap: 4px;
-        flex: 1 1 160px;
-        min-width: 130px;
-        max-width: 240px;
+        gap: 3px;
+        flex: 0 1 150px;
+        min-width: 120px;
+        max-width: 190px;
       }
       .tce-header-opp {
         display: flex;
         flex-direction: column;
         align-items: stretch;
-        gap: 4px;
-        flex: 1 1 200px;
-        min-width: 160px;
-        max-width: 280px;
+        gap: 3px;
+        flex: 0 1 180px;
+        min-width: 140px;
+        max-width: 220px;
       }
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-client {
-        flex: 1 1 calc(100% - 72px);
-        max-width: none;
-        order: 3;
-      }
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-agency {
-        flex: 1 1 calc(50% - 40px);
-        max-width: none;
-        order: 4;
-      }
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-opp {
-        flex: 1 1 calc(50% - 40px);
-        max-width: none;
-        order: 5;
-      }
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-header-actions {
-        order: 2;
-        margin-left: auto;
-      }
-      .tce-panel:not(.tce-panel--wide):not(.tce-panel--compare) .tce-hotel-options-toggle {
-        order: 6;
+      .tce-header-fields .tce-hotel-options-toggle {
+        margin-bottom: 2px;
+        flex: 0 0 auto;
       }
       .tce-header-client label,
       .tce-header-agency label,
@@ -3115,8 +3109,7 @@ export class CartSidebar {
         align-items: center;
         gap: 5px;
         flex-shrink: 0;
-        padding-top: 2px;
-        margin-left: auto;
+        margin-left: 0;
       }
       .tce-hotel-options-toggle {
         display: inline-flex;
@@ -6311,90 +6304,94 @@ export class CartSidebar {
       </button>
       <div class="tce-panel ${this.isOpen ? 'tce-panel--open' : ''}${wideClass}">
         <div class="tce-header">
-          <div class="tce-header-title">
-            <h2>Asistente de cotización</h2>
-            <span class="tce-header-meta">${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
-          </div>
-          <div class="tce-header-client">
-            <label for="tce-client-input">Contacto</label>
-            <div class="tce-contact-wrap">
-              <input
-                id="tce-client-input"
-                class="tce-client-input"
-                type="text"
-                maxlength="120"
-                placeholder="Nombre…"
-                autocomplete="off"
-                value="${this.escape(this.clientName)}"
-              />
-              <input
-                id="tce-contact-phone"
-                class="tce-contact-phone-input"
-                type="tel"
-                maxlength="40"
-                placeholder="Teléfono…"
-                autocomplete="off"
-                value="${this.escape(this.selectedContactPhone)}"
-              />
-              <div class="tce-contact-dd">${this.contactDropdownHtml()}</div>
+          <div class="tce-header-top">
+            <div class="tce-header-title">
+              <h2>Asistente de cotización</h2>
+              <span class="tce-header-meta">${this.items.length} item${this.items.length !== 1 ? 's' : ''}${this.advisorName ? ` · ${this.escape(this.advisorName)}` : ''}</span>
+            </div>
+            <div class="tce-header-actions">
+              <button type="button" class="tce-open-panel" data-action="open-asistente"
+                title="Abrir panel en otra pestaña">↗</button>
+              <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
             </div>
           </div>
-          <div class="tce-header-agency">
-            <label for="tce-agency-input">Agencia</label>
-            <input
-              id="tce-agency-input"
-              class="tce-agency-input"
-              type="text"
-              maxlength="120"
-              placeholder="Nombre en el PDF"
-              value="${this.escape(this.agencyName)}"
-            />
-            <input
-              id="tce-email-input"
-              class="tce-email-input"
-              type="email"
-              maxlength="160"
-              placeholder="Email…"
-              autocomplete="off"
-              value="${this.escape(this.clientEmail)}"
-            />
-          </div>
-          <div class="tce-header-opp">
-            <label for="tce-opp-select">Oportunidad</label>
-            <select id="tce-opp-select" class="tce-opp-select" title="Vincular esta cotización a una oportunidad de venta">
-              <option value="">Sin vincular</option>
-              ${this.opportunityHits
-                .map((o) => {
-                  const seq = o.sequence_number != null ? `#${o.sequence_number}` : '';
-                  const stage = (o.stage_name || o.stage_code || '').trim();
-                  const car = o.numero_car_ref ? ` · ${o.numero_car_ref}` : '';
-                  const label = `${seq} ${o.contact_name || ''} · ${stage}${car}`.replace(/\s+/g, ' ').trim();
-                  const sel = this.linkedOpportunity?.id === o.id ? 'selected' : '';
-                  return `<option value="${this.escape(o.id)}" ${sel}>${this.escape(label || o.id.slice(0, 8))}</option>`;
-                })
-                .join('')}
-            </select>
-            ${
-              this.linkedOpportunity &&
-              !this.opportunityHits.some((o) => o.id === this.linkedOpportunity!.id)
-                ? `<span class="tce-header-meta" style="opacity:.9">Vinculada ${
-                    this.linkedOpportunity.sequence_number != null
-                      ? `#${this.linkedOpportunity.sequence_number}`
-                      : this.linkedOpportunity.id.slice(0, 8)
-                  }</span>`
-                : this.selectedContactPhone.trim().length >= 7 && this.opportunityHits.length === 0
-                  ? `<span class="tce-header-meta" style="opacity:.75">Sin oportunidades para este teléfono</span>`
-                  : ''
-            }
-          </div>
-          <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
-            <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
-            Comparar
-          </label>
-          <div class="tce-header-actions">
-            <button type="button" class="tce-open-panel" data-action="open-asistente"
-              title="Abrir panel en otra pestaña">↗</button>
-            <button class="tce-close" data-action="toggle" title="Cerrar">✕</button>
+          <div class="tce-header-fields">
+            <div class="tce-header-client">
+              <label for="tce-client-input">Contacto</label>
+              <div class="tce-contact-wrap">
+                <input
+                  id="tce-client-input"
+                  class="tce-client-input"
+                  type="text"
+                  maxlength="120"
+                  placeholder="Nombre…"
+                  autocomplete="off"
+                  value="${this.escape(this.clientName)}"
+                />
+                <input
+                  id="tce-contact-phone"
+                  class="tce-contact-phone-input"
+                  type="tel"
+                  maxlength="40"
+                  placeholder="Teléfono…"
+                  autocomplete="off"
+                  value="${this.escape(this.selectedContactPhone)}"
+                />
+                <div class="tce-contact-dd">${this.contactDropdownHtml()}</div>
+              </div>
+            </div>
+            <div class="tce-header-agency">
+              <label for="tce-agency-input">Agencia</label>
+              <input
+                id="tce-agency-input"
+                class="tce-agency-input"
+                type="text"
+                maxlength="120"
+                placeholder="Nombre en el PDF"
+                value="${this.escape(this.agencyName)}"
+              />
+              <input
+                id="tce-email-input"
+                class="tce-email-input"
+                type="email"
+                maxlength="160"
+                placeholder="Email…"
+                autocomplete="off"
+                value="${this.escape(this.clientEmail)}"
+              />
+            </div>
+            <div class="tce-header-opp">
+              <label for="tce-opp-select">Oportunidad</label>
+              <select id="tce-opp-select" class="tce-opp-select" title="Vincular esta cotización a una oportunidad de venta">
+                <option value="">Sin vincular</option>
+                ${this.opportunityHits
+                  .map((o) => {
+                    const seq = o.sequence_number != null ? `#${o.sequence_number}` : '';
+                    const stage = (o.stage_name || o.stage_code || '').trim();
+                    const car = o.numero_car_ref ? ` · ${o.numero_car_ref}` : '';
+                    const label = `${seq} ${o.contact_name || ''} · ${stage}${car}`.replace(/\s+/g, ' ').trim();
+                    const sel = this.linkedOpportunity?.id === o.id ? 'selected' : '';
+                    return `<option value="${this.escape(o.id)}" ${sel}>${this.escape(label || o.id.slice(0, 8))}</option>`;
+                  })
+                  .join('')}
+              </select>
+              ${
+                this.linkedOpportunity &&
+                !this.opportunityHits.some((o) => o.id === this.linkedOpportunity!.id)
+                  ? `<span class="tce-header-meta" style="opacity:.9">Vinculada ${
+                      this.linkedOpportunity.sequence_number != null
+                        ? `#${this.linkedOpportunity.sequence_number}`
+                        : this.linkedOpportunity.id.slice(0, 8)
+                    }</span>`
+                  : this.selectedContactPhone.trim().length >= 7 && this.opportunityHits.length === 0
+                    ? `<span class="tce-header-meta" style="opacity:.75">Sin oportunidades para este teléfono</span>`
+                    : ''
+              }
+            </div>
+            <label class="tce-hotel-options-toggle" title="Comparar cada opción de hotel con su propio total">
+              <input type="checkbox" class="tce-hotels-as-options" ${this.hotelsAsOptions ? 'checked' : ''}>
+              Comparar
+            </label>
           </div>
         </div>
         <div class="tce-meta-bar">
